@@ -1,0 +1,119 @@
+[server]
+bind = "127.0.0.1:7820"
+# Optional bearer token for non-loopback WebSocket clients.
+# Local loopback clients remain allowed without it.
+# auth_token = "CHANGE_ME"
+
+[database]
+path = "./data/qodex.db"
+store_message_content = false
+message_retention_days = 7
+approval_retention_days = 3
+redact_resolved_approval_payloads = true
+
+[backend]
+kind = "codex"
+# Global default backend. Individual channel instances can override this with
+# `[channels.<instance>.config.backend].kind`.
+# qodex-edge auto-starts `codex app-server` whenever the global default or any
+# enabled channel instance uses the Codex backend, and auto-starts `opencode serve`
+# whenever the configured backend selection needs OpenCode.
+
+[codex]
+url = "ws://127.0.0.1:8765"
+model = "gpt-5.4"
+# Optional provider id passed through to `codex app-server`.
+# Define the provider itself in `~/.codex/config.toml`, then point Qodex at it here.
+# For OpenAI-compatible custom providers, Codex currently expects a Responses API-compatible endpoint.
+# model_provider = "openai"
+approval_policy = "on-request"
+sandbox = "workspace-write"
+experimental_api = false
+service_name = "Qodex"
+default_workspace = "/ABSOLUTE/PATH/TO/YOUR/WORKSPACE"
+# Each entry acts as an allowed root directory, so descendants are also permitted.
+# Example: allowed_workspaces = ["/Users/zain/Development"] allows any project inside that tree.
+allowed_workspaces = ["/ABSOLUTE/PATH/TO/YOUR/WORKSPACE"]
+request_timeout_ms = 30000
+
+# OpenCode backend via the HTTP/SSE server API.
+# Switch `[backend].kind` to `opencode` when targeting an OpenCode server instead
+# of `codex app-server`.
+#
+# [opencode]
+# url = "http://127.0.0.1:4097"
+# model = "YOUR_MODEL"
+# model_provider = "YOUR_PROVIDER"
+# approval_policy = "on-request"
+# sandbox = "workspace-write"
+# service_name = "Qodex"
+# request_timeout_ms = 30000
+
+[edge]
+core_url = "ws://127.0.0.1:7820/ws"
+request_timeout_ms = 30000
+stream_flush_ms = 1200
+# Optional explicit override. If omitted, `server.auth_token` is reused.
+# core_auth_token = "CHANGE_ME"
+
+[logging]
+rust = "info,qodex_core=debug"
+node = "info"
+
+[channels.console]
+enabled = true
+plugin = "builtin:console"
+
+[channels.console.config]
+
+# Example standalone QQ channel package for local development.
+# This works with:
+# npm run host:qodex -- --config ./qodex.toml
+#
+# [channels.qq]
+# enabled = true
+# plugin = "./packages/qodex-channel-qqbot/src/index.ts"
+# channel_id = "qqbot"
+# account_id = "main-account"
+#
+# [channels.qq.config]
+# app_id = "YOUR_APP_ID"
+# client_secret_file = "/ABSOLUTE/PATH/TO/qqbot.secret"
+# markdown_support = false
+# allow_from = ["c2c:YOUR_USER_OPENID"]
+# request_timeout_ms = 15000
+#
+# Optional per-bot backend override. If omitted, this bot uses `[backend].kind`.
+# [channels.qq.config.backend]
+# kind = "opencode"
+#
+# Optional per-bot model/provider override. The block name is kept for
+# compatibility, but the request-level `model` / `model_provider` values apply
+# to whichever backend the bot uses.
+# [channels.qq.config.codex]
+# model = "gpt-5.3-codex"
+# model_provider = "localproxy"
+#
+# Optional second independent QQ bot instance:
+# [channels.qq_backup]
+# enabled = true
+# plugin = "./packages/qodex-channel-qqbot/src/index.ts"
+# channel_id = "qqbot"
+# account_id = "backup-account"
+#
+# [channels.qq_backup.config]
+# app_id = "YOUR_BACKUP_APP_ID"
+# client_secret_file = "/ABSOLUTE/PATH/TO/qqbot-backup.secret"
+# markdown_support = false
+# request_timeout_ms = 15000
+# allow_from = ["c2c:YOUR_OTHER_USER_OPENID"]
+#
+# [channels.qq_backup.config.codex]
+# model_provider = "backup-provider"
+#
+# Add more `channels.<instance>` sections the same way when each QQ bot has
+# its own app_id and secret. Each instance stays isolated for routing and
+# conversation state, and can optionally target a different Codex model/provider.
+#
+# For a built package instead of the TS source file:
+# plugin = "./packages/qodex-channel-qqbot/dist/index.js"

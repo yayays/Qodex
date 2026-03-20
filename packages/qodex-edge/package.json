@@ -1,0 +1,45 @@
+{
+  "name": "@qodex/edge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone Qodex edge host with OpenClaw-inspired channel/plugin interfaces",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./openclaw-plugin": {
+      "types": "./dist/openclaw-plugin.d.ts",
+      "default": "./dist/openclaw-plugin.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "bin": {
+    "qodex-edge": "dist/cli.js",
+    "qodex-host": "dist/launcher.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "dev": "node --import tsx ./src/cli.ts",
+    "host": "node --import tsx ./src/launcher.ts",
+    "test": "node --import tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "pino": "^9.6.0",
+    "toml": "^3.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

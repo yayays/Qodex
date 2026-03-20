@@ -1,0 +1,27 @@
+{
+  "id": "qodex",
+  "name": "Qodex",
+  "version": "0.1.0",
+  "description": "Qodex command plugin for OpenClaw transports such as openclaw-qqbot.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "coreUrl": {
+        "type": "string",
+        "description": "WebSocket endpoint exposed by qodex-core.",
+        "default": "ws://127.0.0.1:7820/ws"
+      },
+      "defaultWorkspace": {
+        "type": "string",
+        "description": "Workspace sent on the first turn when a conversation is not bound yet."
+      },
+      "responseTimeoutMs": {
+        "type": "integer",
+        "description": "Maximum time to wait for a turn result before returning a timeout message.",
+        "default": 90000,
+        "minimum": 1000
+      }
+    }
+  }
+}

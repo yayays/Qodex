@@ -1,0 +1,33 @@
+{
+  "name": "@qodex/channel-qqbot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone QQ channel plugin for Qodex, adapted from OpenClaw-style channel semantics",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "@qodex/edge": "0.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "tsx": "^4.19.2",
+    "@types/ws": "^8.5.13"
+  }
+}

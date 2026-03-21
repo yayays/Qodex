@@ -1,0 +1,53 @@
+{
+  "sendMessageParams": [
+    "conversation",
+    "sender",
+    "text",
+    "images",
+    "workspace",
+    "backendKind",
+    "model",
+    "modelProvider"
+  ],
+  "sendMessageResponse": [
+    "accepted",
+    "conversationKey",
+    "threadId",
+    "turnId"
+  ],
+  "approvalRequestedEvent": [
+    "eventId",
+    "approvalId",
+    "conversationKey",
+    "threadId",
+    "turnId",
+    "kind",
+    "reason",
+    "summary",
+    "availableDecisions",
+    "payloadJson"
+  ],
+  "conversationDetailsResponse": [
+    "conversation",
+    "runtime",
+    "pendingApprovals",
+    "recentMessages",
+    "recentTurn",
+    "recentError"
+  ],
+  "conversationRunningRuntime": [
+    "threadId",
+    "status",
+    "activeFlags",
+    "error"
+  ],
+  "pendingDeliveryRecord": [
+    "eventId",
+    "method",
+    "conversationKey",
+    "threadId",
+    "turnId",
+    "payloadJson",
+    "createdAt"
+  ]
+}

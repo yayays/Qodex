@@ -217,6 +217,8 @@ impl Default for OpenCodeConfig {
 #[serde(default)]
 pub struct EdgeConfig {
     pub core_url: String,
+    pub core_auth_token: Option<String>,
+    pub request_timeout_ms: u64,
     pub stream_flush_ms: u64,
 }
 
@@ -224,6 +226,8 @@ impl Default for EdgeConfig {
     fn default() -> Self {
         Self {
             core_url: "ws://127.0.0.1:7820/ws".to_string(),
+            core_auth_token: None,
+            request_timeout_ms: 30_000,
             stream_flush_ms: 1200,
         }
     }
@@ -368,5 +372,53 @@ model_provider = "local-chat"
             config.opencode.model_provider.as_deref(),
             Some("local-chat")
         );
+    }
+
+    #[test]
+    fn load_parses_aligned_edge_and_backend_fields() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let config_path = dir.path().join("qodex.toml");
+        fs::write(
+            &config_path,
+            r#"
+[server]
+auth_token = "shared-token"
+
+[codex]
+default_workspace = "./workspace"
+approval_policy = "never"
+sandbox = "read-only"
+experimental_api = true
+service_name = "Qodex Core"
+request_timeout_ms = 45000
+
+[opencode]
+approval_policy = "untrusted"
+sandbox = "danger-full-access"
+service_name = "Qodex OpenCode"
+request_timeout_ms = 47000
+
+[edge]
+core_auth_token = "edge-token"
+request_timeout_ms = 41000
+stream_flush_ms = 900
+"#,
+        )
+        .expect("config written");
+
+        let config = Config::load(&config_path).expect("config loads");
+        assert_eq!(config.server.auth_token.as_deref(), Some("shared-token"));
+        assert_eq!(config.codex.approval_policy, "never");
+        assert_eq!(config.codex.sandbox, "read-only");
+        assert!(config.codex.experimental_api);
+        assert_eq!(config.codex.service_name, "Qodex Core");
+        assert_eq!(config.codex.request_timeout_ms, 45_000);
+        assert_eq!(config.opencode.approval_policy, "untrusted");
+        assert_eq!(config.opencode.sandbox, "danger-full-access");
+        assert_eq!(config.opencode.service_name, "Qodex OpenCode");
+        assert_eq!(config.opencode.request_timeout_ms, 47_000);
+        assert_eq!(config.edge.core_auth_token.as_deref(), Some("edge-token"));
+        assert_eq!(config.edge.request_timeout_ms, 41_000);
+        assert_eq!(config.edge.stream_flush_ms, 900);
     }
 }

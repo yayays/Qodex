@@ -1,0 +1,49 @@
+{
+  "requiredSections": [
+    "server",
+    "database",
+    "backend",
+    "codex",
+    "edge",
+    "logging",
+    "channels"
+  ],
+  "optionalSections": [
+    "opencode"
+  ],
+  "backendKinds": [
+    "codex",
+    "opencode"
+  ],
+  "loaderDefaults": {
+    "server.bind": "127.0.0.1:7820",
+    "server.authToken": null,
+    "backend.kind": "codex",
+    "codex.url": "ws://127.0.0.1:8765",
+    "codex.modelProvider": null,
+    "codex.approvalPolicy": "on-request",
+    "codex.sandbox": "workspace-write",
+    "codex.experimentalApi": false,
+    "codex.serviceName": "Qodex",
+    "codex.requestTimeoutMs": 30000,
+    "opencode.url": "http://127.0.0.1:4097",
+    "opencode.modelProvider": null,
+    "opencode.approvalPolicy": "on-request",
+    "opencode.sandbox": "workspace-write",
+    "opencode.serviceName": "Qodex",
+    "opencode.requestTimeoutMs": 30000,
+    "edge.coreUrl": "ws://127.0.0.1:7820/ws",
+    "edge.coreAuthToken": null,
+    "edge.requestTimeoutMs": 30000,
+    "edge.streamFlushMs": 1200,
+    "logging.node": "info"
+  },
+  "requiredFields": {
+    "server": ["bind"],
+    "backend": ["kind"],
+    "codex": ["url", "default_workspace"],
+    "opencode": ["url"],
+    "edge": ["core_url", "stream_flush_ms"],
+    "logging": ["node"]
+  }
+}

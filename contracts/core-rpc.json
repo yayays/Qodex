@@ -1,0 +1,21 @@
+{
+  "jsonrpcVersion": "2.0",
+  "methods": {
+    "sendMessage": "conversation/sendMessage",
+    "bindWorkspace": "conversation/bindWorkspace",
+    "newThread": "conversation/newThread",
+    "status": "conversation/status",
+    "details": "conversation/details",
+    "running": "conversation/running",
+    "respondApproval": "approval/respond",
+    "listPendingDeliveries": "delivery/listPending",
+    "ackDelivery": "delivery/ack",
+    "ping": "system/ping"
+  },
+  "events": {
+    "delta": "conversation/delta",
+    "completed": "conversation/completed",
+    "error": "conversation/error",
+    "approvalRequested": "approval/requested"
+  }
+}

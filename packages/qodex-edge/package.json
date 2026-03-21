@@ -25,11 +25,12 @@
     "qodex-host": "dist/launcher.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit",
-    "dev": "node --import tsx ./src/cli.ts",
-    "host": "node --import tsx ./src/launcher.ts",
-    "test": "node --import tsx --test test/**/*.test.ts"
+    "generate:contracts": "node ../../scripts/generate-contract-artifacts.mjs",
+    "build": "npm run generate:contracts && tsc -p tsconfig.json",
+    "check": "npm run generate:contracts && tsc -p tsconfig.json --noEmit",
+    "dev": "npm run generate:contracts && node --import tsx ./src/cli.ts",
+    "host": "npm run generate:contracts && node --import tsx ./src/launcher.ts",
+    "test": "npm run generate:contracts && node --import tsx --test test/**/*.test.ts"
   },
   "dependencies": {
     "pino": "^9.6.0",

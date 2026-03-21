@@ -7,6 +7,7 @@
     "packages/qodex-channel-qqbot"
   ],
   "scripts": {
+    "generate:contracts": "node ./scripts/generate-contract-artifacts.mjs",
     "build:core": "cargo build -p qodex-core",
     "run:core": "cargo run -p qodex-core -- --config ./qodex.toml",
     "check:core": "cargo check -p qodex-core",

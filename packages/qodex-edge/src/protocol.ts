@@ -1,24 +1,12 @@
-export const JSONRPC_VERSION = '2.0';
+import {
+  CoreEvents as GeneratedCoreEvents,
+  CoreMethods as GeneratedCoreMethods,
+  JSONRPC_VERSION as GeneratedJsonRpcVersion,
+} from './generated/core-rpc.js';
 
-export const CoreMethods = {
-  sendMessage: 'conversation/sendMessage',
-  bindWorkspace: 'conversation/bindWorkspace',
-  newThread: 'conversation/newThread',
-  status: 'conversation/status',
-  details: 'conversation/details',
-  running: 'conversation/running',
-  listPendingDeliveries: 'delivery/listPending',
-  ackDelivery: 'delivery/ack',
-  respondApproval: 'approval/respond',
-  ping: 'system/ping',
-} as const;
-
-export const CoreEvents = {
-  delta: 'conversation/delta',
-  completed: 'conversation/completed',
-  error: 'conversation/error',
-  approvalRequested: 'approval/requested',
-} as const;
+export const JSONRPC_VERSION = GeneratedJsonRpcVersion;
+export const CoreMethods = GeneratedCoreMethods;
+export const CoreEvents = GeneratedCoreEvents;
 
 export type JsonRpcId = number | string;
 

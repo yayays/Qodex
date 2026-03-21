@@ -1,5 +1,6 @@
 pub mod api;
 pub mod backend;
+mod contract;
 pub mod codex;
 pub mod config;
 pub mod db;

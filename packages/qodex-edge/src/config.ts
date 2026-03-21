@@ -1,6 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { parse } from 'toml';
+import {
+  BackendKinds,
+  ConfigLoaderDefaults,
+  type BackendKind,
+} from './generated/config-contract.js';
 
 export interface ChannelEntryConfig {
   instanceId: string;
@@ -11,8 +16,6 @@ export interface ChannelEntryConfig {
   configDir: string;
   config: Record<string, unknown>;
 }
-
-export type BackendKind = 'codex' | 'opencode';
 
 export interface QodexConfig {
   server: {
@@ -26,6 +29,7 @@ export interface QodexConfig {
     streamFlushMs: number;
   };
   logging: {
+    rust: string;
     node: string;
   };
   backend: {
@@ -36,12 +40,22 @@ export interface QodexConfig {
     url: string;
     model?: string;
     modelProvider?: string;
+    approvalPolicy: string;
+    sandbox: string;
+    experimentalApi: boolean;
+    serviceName: string;
     defaultWorkspace: string;
+    allowedWorkspaces: string[];
+    requestTimeoutMs: number;
   };
   opencode: {
     url: string;
     model?: string;
     modelProvider?: string;
+    approvalPolicy: string;
+    sandbox: string;
+    serviceName: string;
+    requestTimeoutMs: number;
   };
   channels: ChannelEntryConfig[];
 }
@@ -55,35 +69,59 @@ export async function loadConfig(configPath = './qodex.toml'): Promise<QodexConf
 
   return {
     server: {
-      bind: parsed.server?.bind ?? '127.0.0.1:7820',
+      bind: parsed.server?.bind ?? ConfigLoaderDefaults['server.bind'],
       authToken: readString(parsed.server?.auth_token),
     },
     edge: {
-      coreUrl: parsed.edge?.core_url ?? 'ws://127.0.0.1:7820/ws',
+      coreUrl: parsed.edge?.core_url ?? ConfigLoaderDefaults['edge.coreUrl'],
       coreAuthToken:
         readString(parsed.edge?.core_auth_token) ?? readString(parsed.server?.auth_token),
-      requestTimeoutMs: readNumber(parsed.edge?.request_timeout_ms) ?? 30_000,
-      streamFlushMs: parsed.edge?.stream_flush_ms ?? 1200,
+      requestTimeoutMs:
+        readNumber(parsed.edge?.request_timeout_ms) ?? ConfigLoaderDefaults['edge.requestTimeoutMs'],
+      streamFlushMs:
+        parsed.edge?.stream_flush_ms ?? ConfigLoaderDefaults['edge.streamFlushMs'],
     },
     logging: {
-      node: parsed.logging?.node ?? 'info',
+      rust: parsed.logging?.rust ?? 'info,qodex_core=debug',
+      node: parsed.logging?.node ?? ConfigLoaderDefaults['logging.node'],
     },
     backend: {
-      kind: readBackendKind(parsed.backend?.kind) ?? 'codex',
+      kind: readBackendKind(parsed.backend?.kind) ?? ConfigLoaderDefaults['backend.kind'],
       defaultWorkspace,
     },
     codex: {
-      url: parsed.codex?.url ?? 'ws://127.0.0.1:8765',
+      url: parsed.codex?.url ?? ConfigLoaderDefaults['codex.url'],
       model: readString(parsed.codex?.model),
       modelProvider:
         readString(parsed.codex?.model_provider) ?? readString(parsed.codex?.modelProvider),
+      approvalPolicy:
+        readString(parsed.codex?.approval_policy) ?? ConfigLoaderDefaults['codex.approvalPolicy'],
+      sandbox: readString(parsed.codex?.sandbox) ?? ConfigLoaderDefaults['codex.sandbox'],
+      experimentalApi:
+        readBoolean(parsed.codex?.experimental_api) ?? ConfigLoaderDefaults['codex.experimentalApi'],
+      serviceName:
+        readString(parsed.codex?.service_name) ?? ConfigLoaderDefaults['codex.serviceName'],
       defaultWorkspace,
+      allowedWorkspaces: readStringArray(parsed.codex?.allowed_workspaces),
+      requestTimeoutMs:
+        readNumber(parsed.codex?.request_timeout_ms)
+        ?? ConfigLoaderDefaults['codex.requestTimeoutMs'],
     },
     opencode: {
-      url: parsed.opencode?.url ?? 'http://127.0.0.1:4097',
+      url: parsed.opencode?.url ?? ConfigLoaderDefaults['opencode.url'],
       model: readString(parsed.opencode?.model),
       modelProvider:
         readString(parsed.opencode?.model_provider) ?? readString(parsed.opencode?.modelProvider),
+      approvalPolicy:
+        readString(parsed.opencode?.approval_policy)
+        ?? ConfigLoaderDefaults['opencode.approvalPolicy'],
+      sandbox:
+        readString(parsed.opencode?.sandbox) ?? ConfigLoaderDefaults['opencode.sandbox'],
+      serviceName:
+        readString(parsed.opencode?.service_name) ?? ConfigLoaderDefaults['opencode.serviceName'],
+      requestTimeoutMs:
+        readNumber(parsed.opencode?.request_timeout_ms)
+        ?? ConfigLoaderDefaults['opencode.requestTimeoutMs'],
     },
     channels: parseChannels(parsed.channels, configDir),
   };
@@ -123,9 +161,16 @@ function readNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+}
+
 function readBackendKind(value: unknown): BackendKind | undefined {
-  if (value === 'codex' || value === 'opencode') {
-    return value;
+  if (typeof value === 'string' && (BackendKinds as readonly string[]).includes(value)) {
+    return value as BackendKind;
   }
   return undefined;
 }

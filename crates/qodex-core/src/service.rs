@@ -14,7 +14,10 @@ use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::{
-    backend::{AgentBackend, BackendInbound, BackendKind, BackendSessionConfig, ThreadStatus},
+    backend::{
+        AgentBackend, BackendInbound, BackendKind, BackendSessionConfig, ThreadStatus,
+        TurnStartResponse,
+    },
     codex::CodexClient,
     config::Config,
     db::{
@@ -189,53 +192,18 @@ impl AppService {
                 conversation = self.switch_workspace(&conversation, &workspace).await?;
             }
 
-            let thread_id = self
-                .ensure_active_thread(
+            let (thread_id, turn): (String, TurnStartResponse) = self
+                .start_turn_with_recovery(
                     backend_kind,
                     backend.clone(),
                     &conversation_key,
                     &conversation.workspace,
                     conversation.thread_id.as_deref(),
                     &backend_config,
+                    &params.text,
+                    params.images.clone(),
                 )
                 .await?;
-
-            let (thread_id, turn) = match backend
-                .start_turn(&thread_id, &params.text, params.images.clone())
-                .await
-            {
-                Ok(turn) => (thread_id, turn),
-                Err(error) if is_thread_not_found_error(&error) => {
-                    warn!(
-                        conversation_key = %conversation_key,
-                        backend = backend_kind.as_str(),
-                        stale_thread_id = %thread_id,
-                        ?error,
-                        "active backend thread rejected turn; recreating thread and retrying turn"
-                    );
-                    self.clear_workspace_thread_binding(
-                        backend_kind,
-                        &conversation_key,
-                        &conversation.workspace,
-                        Some(&thread_id),
-                    )
-                    .await?;
-                    let recreated_thread_id = self
-                        .create_thread_binding(
-                            backend_kind,
-                            backend.clone(),
-                            &conversation_key,
-                            &conversation.workspace,
-                            &backend_config,
-                        )
-                        .await?;
-                    let turn = backend
-                        .start_turn(&recreated_thread_id, &params.text, params.images.clone())
-                        .await?;
-                    (recreated_thread_id, turn)
-                }
-                Err(error) => Err(error)?,
-            };
             self.db
                 .log_message(
                     &conversation_key,
@@ -289,7 +257,6 @@ impl AppService {
             entry.last_used_at = Instant::now();
         }
     }
-
 }
 
 #[cfg(test)]

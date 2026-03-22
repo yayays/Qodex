@@ -36,6 +36,7 @@
     "edge.coreAuthToken": null,
     "edge.requestTimeoutMs": 30000,
     "edge.streamFlushMs": 1200,
+    "logging.rust": "info,qodex_core=debug",
     "logging.node": "info"
   },
   "requiredFields": {
@@ -44,6 +45,6 @@
     "codex": ["url", "default_workspace"],
     "opencode": ["url"],
     "edge": ["core_url", "stream_flush_ms"],
-    "logging": ["node"]
+    "logging": ["rust", "node"]
   }
 }

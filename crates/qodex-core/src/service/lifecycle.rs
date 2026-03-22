@@ -278,6 +278,63 @@ impl AppService {
         }
     }
 
+    pub(super) async fn start_turn_with_recovery(
+        &self,
+        backend_kind: BackendKind,
+        backend: Arc<dyn AgentBackend>,
+        conversation_key: &str,
+        workspace: &str,
+        thread_id: Option<&str>,
+        backend_config: &BackendSessionConfig,
+        text: &str,
+        images: Vec<ImageInput>,
+    ) -> Result<(String, TurnStartResponse)> {
+        let thread_id = self
+            .ensure_active_thread(
+                backend_kind,
+                backend.clone(),
+                conversation_key,
+                workspace,
+                thread_id,
+                backend_config,
+            )
+            .await?;
+
+        match backend.start_turn(&thread_id, text, images.clone()).await {
+            Ok(turn) => Ok((thread_id, turn)),
+            Err(error) if is_thread_not_found_error(&error) => {
+                warn!(
+                    conversation_key = %conversation_key,
+                    backend = backend_kind.as_str(),
+                    stale_thread_id = %thread_id,
+                    ?error,
+                    "active backend thread rejected turn; recreating thread and retrying turn"
+                );
+                self.clear_workspace_thread_binding(
+                    backend_kind,
+                    conversation_key,
+                    workspace,
+                    Some(&thread_id),
+                )
+                .await?;
+                let recreated_thread_id = self
+                    .create_thread_binding(
+                        backend_kind,
+                        backend.clone(),
+                        conversation_key,
+                        workspace,
+                        backend_config,
+                    )
+                    .await?;
+                let turn = backend
+                    .start_turn(&recreated_thread_id, text, images)
+                    .await?;
+                Ok((recreated_thread_id, turn))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     pub(super) async fn create_thread_binding(
         &self,
         backend_kind: BackendKind,
@@ -298,33 +355,11 @@ impl AppService {
         backend_kind: BackendKind,
         params: &SendMessageParams,
     ) -> BackendSessionConfig {
-        let (model, model_provider, approval_policy, sandbox, experimental_api, service_name) =
-            match backend_kind {
-                crate::backend::BackendKind::Codex => (
-                    self.config.codex.model.clone(),
-                    self.config.codex.model_provider.clone(),
-                    self.config.codex.approval_policy.clone(),
-                    self.config.codex.sandbox.clone(),
-                    self.config.codex.experimental_api,
-                    self.config.codex.service_name.clone(),
-                ),
-                crate::backend::BackendKind::Opencode => (
-                    self.config.opencode.model.clone(),
-                    self.config.opencode.model_provider.clone(),
-                    self.config.opencode.approval_policy.clone(),
-                    self.config.opencode.sandbox.clone(),
-                    false,
-                    self.config.opencode.service_name.clone(),
-                ),
-            };
-        BackendSessionConfig {
-            model: params.model.clone().or(model),
-            model_provider: params.model_provider.clone().or(model_provider),
-            approval_policy,
-            sandbox,
-            experimental_api,
-            service_name,
-        }
+        self.config.resolve_backend_session_config(
+            backend_kind,
+            params.model.clone(),
+            params.model_provider.clone(),
+        )
     }
 
     pub(super) async fn activate_thread_binding(

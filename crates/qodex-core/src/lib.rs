@@ -1,8 +1,8 @@
 pub mod api;
 pub mod backend;
-mod contract;
 pub mod codex;
 pub mod config;
+mod contract;
 pub mod db;
 pub mod opencode;
 pub mod protocol;

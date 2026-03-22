@@ -6,7 +6,21 @@ use std::{
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::backend::BackendKind;
+use crate::backend::{BackendKind, BackendSessionConfig};
+
+pub mod defaults {
+    pub const SERVER_BIND: &str = "127.0.0.1:7820";
+    pub const CODEX_URL: &str = "ws://127.0.0.1:8765";
+    pub const OPENCODE_URL: &str = "http://127.0.0.1:4097";
+    pub const EDGE_CORE_URL: &str = "ws://127.0.0.1:7820/ws";
+    pub const DEFAULT_APPROVAL_POLICY: &str = "on-request";
+    pub const DEFAULT_SANDBOX: &str = "workspace-write";
+    pub const DEFAULT_SERVICE_NAME: &str = "Qodex";
+    pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
+    pub const DEFAULT_STREAM_FLUSH_MS: u64 = 1200;
+    pub const DEFAULT_RUST_LOG_FILTER: &str = "info,qodex_core=debug";
+    pub const DEFAULT_NODE_LOG_FILTER: &str = "info";
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
@@ -50,6 +64,42 @@ impl Config {
             .collect();
         ensure_allowed_workspace_defaults(&mut config);
         Ok(config)
+    }
+
+    pub fn resolve_backend_session_config(
+        &self,
+        backend_kind: BackendKind,
+        model_override: Option<String>,
+        model_provider_override: Option<String>,
+    ) -> BackendSessionConfig {
+        let (model, model_provider, approval_policy, sandbox, experimental_api, service_name) =
+            match backend_kind {
+                BackendKind::Codex => (
+                    self.codex.model.clone(),
+                    self.codex.model_provider.clone(),
+                    self.codex.approval_policy.clone(),
+                    self.codex.sandbox.clone(),
+                    self.codex.experimental_api,
+                    self.codex.service_name.clone(),
+                ),
+                BackendKind::Opencode => (
+                    self.opencode.model.clone(),
+                    self.opencode.model_provider.clone(),
+                    self.opencode.approval_policy.clone(),
+                    self.opencode.sandbox.clone(),
+                    false,
+                    self.opencode.service_name.clone(),
+                ),
+            };
+
+        BackendSessionConfig {
+            model: model_override.or(model),
+            model_provider: model_provider_override.or(model_provider),
+            approval_policy,
+            sandbox,
+            experimental_api,
+            service_name,
+        }
     }
 }
 
@@ -113,7 +163,7 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            bind: "127.0.0.1:7820".to_string(),
+            bind: defaults::SERVER_BIND.to_string(),
             auth_token: None,
         }
     }
@@ -159,16 +209,16 @@ pub struct CodexConfig {
 impl Default for CodexConfig {
     fn default() -> Self {
         Self {
-            url: "ws://127.0.0.1:8765".to_string(),
+            url: defaults::CODEX_URL.to_string(),
             model: None,
             model_provider: None,
-            approval_policy: "on-request".to_string(),
-            sandbox: "workspace-write".to_string(),
+            approval_policy: defaults::DEFAULT_APPROVAL_POLICY.to_string(),
+            sandbox: defaults::DEFAULT_SANDBOX.to_string(),
             experimental_api: false,
-            service_name: "Qodex".to_string(),
+            service_name: defaults::DEFAULT_SERVICE_NAME.to_string(),
             default_workspace: ".".to_string(),
             allowed_workspaces: Vec::new(),
-            request_timeout_ms: 30_000,
+            request_timeout_ms: defaults::DEFAULT_REQUEST_TIMEOUT_MS,
         }
     }
 }
@@ -202,13 +252,13 @@ pub struct OpenCodeConfig {
 impl Default for OpenCodeConfig {
     fn default() -> Self {
         Self {
-            url: "http://127.0.0.1:4097".to_string(),
+            url: defaults::OPENCODE_URL.to_string(),
             model: None,
             model_provider: None,
-            approval_policy: "on-request".to_string(),
-            sandbox: "workspace-write".to_string(),
-            service_name: "Qodex".to_string(),
-            request_timeout_ms: 30_000,
+            approval_policy: defaults::DEFAULT_APPROVAL_POLICY.to_string(),
+            sandbox: defaults::DEFAULT_SANDBOX.to_string(),
+            service_name: defaults::DEFAULT_SERVICE_NAME.to_string(),
+            request_timeout_ms: defaults::DEFAULT_REQUEST_TIMEOUT_MS,
         }
     }
 }
@@ -225,10 +275,10 @@ pub struct EdgeConfig {
 impl Default for EdgeConfig {
     fn default() -> Self {
         Self {
-            core_url: "ws://127.0.0.1:7820/ws".to_string(),
+            core_url: defaults::EDGE_CORE_URL.to_string(),
             core_auth_token: None,
-            request_timeout_ms: 30_000,
-            stream_flush_ms: 1200,
+            request_timeout_ms: defaults::DEFAULT_REQUEST_TIMEOUT_MS,
+            stream_flush_ms: defaults::DEFAULT_STREAM_FLUSH_MS,
         }
     }
 }
@@ -243,8 +293,8 @@ pub struct LoggingConfig {
 impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
-            rust: "info,qodex_core=debug".to_string(),
-            node: "info".to_string(),
+            rust: defaults::DEFAULT_RUST_LOG_FILTER.to_string(),
+            node: defaults::DEFAULT_NODE_LOG_FILTER.to_string(),
         }
     }
 }

@@ -2,12 +2,17 @@
 mod tests {
     use serde_json::Value;
 
-    use crate::protocol::{methods, JSONRPC_VERSION};
+    use crate::{
+        backend::BackendKind,
+        config::defaults,
+        protocol::{methods, JSONRPC_VERSION},
+    };
 
     #[test]
     fn rpc_constants_match_shared_contract() {
-        let contract: Value = serde_json::from_str(include_str!("../../../contracts/core-rpc.json"))
-            .expect("rpc contract parses");
+        let contract: Value =
+            serde_json::from_str(include_str!("../../../contracts/core-rpc.json"))
+                .expect("rpc contract parses");
 
         assert_eq!(
             contract
@@ -23,7 +28,9 @@ mod tests {
             Some(methods::SEND_MESSAGE)
         );
         assert_eq!(
-            methods_contract.get("bindWorkspace").and_then(Value::as_str),
+            methods_contract
+                .get("bindWorkspace")
+                .and_then(Value::as_str),
             Some(methods::BIND_WORKSPACE)
         );
         assert_eq!(
@@ -132,12 +139,6 @@ mod tests {
             }
         }
 
-        let backend_kind = example
-            .get("backend")
-            .and_then(toml::Value::as_table)
-            .and_then(|section| section.get("kind"))
-            .and_then(toml::Value::as_str)
-            .expect("backend.kind");
         let allowed_kinds = contract
             .get("backendKinds")
             .and_then(Value::as_array)
@@ -145,6 +146,18 @@ mod tests {
             .iter()
             .filter_map(Value::as_str)
             .collect::<Vec<_>>();
+        let expected_kinds = BackendKind::ALL
+            .iter()
+            .map(|kind| kind.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(allowed_kinds, expected_kinds);
+
+        let backend_kind = example
+            .get("backend")
+            .and_then(toml::Value::as_table)
+            .and_then(|section| section.get("kind"))
+            .and_then(toml::Value::as_str)
+            .expect("backend.kind");
         assert!(allowed_kinds.contains(&backend_kind));
     }
 
@@ -175,12 +188,7 @@ mod tests {
             send_message_params
         );
 
-        let send_message_response = vec![
-            "accepted",
-            "conversationKey",
-            "threadId",
-            "turnId",
-        ];
+        let send_message_response = vec!["accepted", "conversationKey", "threadId", "turnId"];
         assert_eq!(
             contract
                 .get("sendMessageResponse")
@@ -272,93 +280,131 @@ mod tests {
         let contract: Value =
             serde_json::from_str(include_str!("../../../contracts/config-contract.json"))
                 .expect("config contract parses");
-        let defaults = contract
+        let contract_defaults = contract
             .get("loaderDefaults")
             .and_then(Value::as_object)
             .expect("loaderDefaults");
         let config = crate::config::Config::default();
 
         assert_eq!(
-            defaults.get("server.bind").and_then(Value::as_str),
-            Some(config.server.bind.as_str())
+            contract_defaults.get("server.bind").and_then(Value::as_str),
+            Some(defaults::SERVER_BIND)
         );
-        assert_eq!(defaults.get("server.authToken"), Some(&Value::Null));
         assert_eq!(
-            defaults.get("backend.kind").and_then(Value::as_str),
+            contract_defaults.get("server.authToken"),
+            Some(&Value::Null)
+        );
+        assert_eq!(
+            contract_defaults
+                .get("backend.kind")
+                .and_then(Value::as_str),
             Some(config.backend.kind.as_str())
         );
         assert_eq!(
-            defaults.get("codex.url").and_then(Value::as_str),
-            Some(config.codex.url.as_str())
-        );
-        assert_eq!(defaults.get("codex.modelProvider"), Some(&Value::Null));
-        assert_eq!(
-            defaults.get("codex.approvalPolicy").and_then(Value::as_str),
-            Some(config.codex.approval_policy.as_str())
+            contract_defaults.get("codex.url").and_then(Value::as_str),
+            Some(defaults::CODEX_URL)
         );
         assert_eq!(
-            defaults.get("codex.sandbox").and_then(Value::as_str),
-            Some(config.codex.sandbox.as_str())
+            contract_defaults.get("codex.modelProvider"),
+            Some(&Value::Null)
         );
         assert_eq!(
-            defaults.get("codex.experimentalApi").and_then(Value::as_bool),
+            contract_defaults
+                .get("codex.approvalPolicy")
+                .and_then(Value::as_str),
+            Some(defaults::DEFAULT_APPROVAL_POLICY)
+        );
+        assert_eq!(
+            contract_defaults
+                .get("codex.sandbox")
+                .and_then(Value::as_str),
+            Some(defaults::DEFAULT_SANDBOX)
+        );
+        assert_eq!(
+            contract_defaults
+                .get("codex.experimentalApi")
+                .and_then(Value::as_bool),
             Some(config.codex.experimental_api)
         );
         assert_eq!(
-            defaults.get("codex.serviceName").and_then(Value::as_str),
-            Some(config.codex.service_name.as_str())
+            contract_defaults
+                .get("codex.serviceName")
+                .and_then(Value::as_str),
+            Some(defaults::DEFAULT_SERVICE_NAME)
         );
         assert_eq!(
-            defaults
+            contract_defaults
                 .get("codex.requestTimeoutMs")
                 .and_then(Value::as_u64),
-            Some(config.codex.request_timeout_ms)
+            Some(defaults::DEFAULT_REQUEST_TIMEOUT_MS)
         );
         assert_eq!(
-            defaults.get("opencode.url").and_then(Value::as_str),
-            Some(config.opencode.url.as_str())
+            contract_defaults
+                .get("opencode.url")
+                .and_then(Value::as_str),
+            Some(defaults::OPENCODE_URL)
         );
-        assert_eq!(defaults.get("opencode.modelProvider"), Some(&Value::Null));
         assert_eq!(
-            defaults
+            contract_defaults.get("opencode.modelProvider"),
+            Some(&Value::Null)
+        );
+        assert_eq!(
+            contract_defaults
                 .get("opencode.approvalPolicy")
                 .and_then(Value::as_str),
-            Some(config.opencode.approval_policy.as_str())
+            Some(defaults::DEFAULT_APPROVAL_POLICY)
         );
         assert_eq!(
-            defaults.get("opencode.sandbox").and_then(Value::as_str),
-            Some(config.opencode.sandbox.as_str())
+            contract_defaults
+                .get("opencode.sandbox")
+                .and_then(Value::as_str),
+            Some(defaults::DEFAULT_SANDBOX)
         );
         assert_eq!(
-            defaults
+            contract_defaults
                 .get("opencode.serviceName")
                 .and_then(Value::as_str),
-            Some(config.opencode.service_name.as_str())
+            Some(defaults::DEFAULT_SERVICE_NAME)
         );
         assert_eq!(
-            defaults
+            contract_defaults
                 .get("opencode.requestTimeoutMs")
                 .and_then(Value::as_u64),
-            Some(config.opencode.request_timeout_ms)
+            Some(defaults::DEFAULT_REQUEST_TIMEOUT_MS)
         );
         assert_eq!(
-            defaults.get("edge.coreUrl").and_then(Value::as_str),
-            Some(config.edge.core_url.as_str())
+            contract_defaults
+                .get("edge.coreUrl")
+                .and_then(Value::as_str),
+            Some(defaults::EDGE_CORE_URL)
         );
-        assert_eq!(defaults.get("edge.coreAuthToken"), Some(&Value::Null));
         assert_eq!(
-            defaults
+            contract_defaults.get("edge.coreAuthToken"),
+            Some(&Value::Null)
+        );
+        assert_eq!(
+            contract_defaults
                 .get("edge.requestTimeoutMs")
                 .and_then(Value::as_u64),
-            Some(config.edge.request_timeout_ms)
+            Some(defaults::DEFAULT_REQUEST_TIMEOUT_MS)
         );
         assert_eq!(
-            defaults.get("edge.streamFlushMs").and_then(Value::as_u64),
-            Some(config.edge.stream_flush_ms)
+            contract_defaults
+                .get("edge.streamFlushMs")
+                .and_then(Value::as_u64),
+            Some(defaults::DEFAULT_STREAM_FLUSH_MS)
         );
         assert_eq!(
-            defaults.get("logging.node").and_then(Value::as_str),
-            Some(config.logging.node.as_str())
+            contract_defaults
+                .get("logging.rust")
+                .and_then(Value::as_str),
+            Some(defaults::DEFAULT_RUST_LOG_FILTER)
+        );
+        assert_eq!(
+            contract_defaults
+                .get("logging.node")
+                .and_then(Value::as_str),
+            Some(defaults::DEFAULT_NODE_LOG_FILTER)
         );
     }
 }

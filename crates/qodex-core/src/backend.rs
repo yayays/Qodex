@@ -21,6 +21,8 @@ impl Default for BackendKind {
 }
 
 impl BackendKind {
+    pub const ALL: [Self; 2] = [Self::Codex, Self::Opencode];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Codex => "codex",

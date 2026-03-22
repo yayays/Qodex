@@ -82,7 +82,7 @@ export async function loadConfig(configPath = './qodex.toml'): Promise<QodexConf
         parsed.edge?.stream_flush_ms ?? ConfigLoaderDefaults['edge.streamFlushMs'],
     },
     logging: {
-      rust: parsed.logging?.rust ?? 'info,qodex_core=debug',
+      rust: parsed.logging?.rust ?? ConfigLoaderDefaults['logging.rust'],
       node: parsed.logging?.node ?? ConfigLoaderDefaults['logging.node'],
     },
     backend: {

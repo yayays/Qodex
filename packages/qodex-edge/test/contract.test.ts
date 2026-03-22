@@ -161,6 +161,7 @@ test('shared config loader defaults match the config contract', async () => {
   assert.equal(config.edge.coreAuthToken ?? null, configContract.loaderDefaults['edge.coreAuthToken']);
   assert.equal(config.edge.requestTimeoutMs, configContract.loaderDefaults['edge.requestTimeoutMs']);
   assert.equal(config.edge.streamFlushMs, configContract.loaderDefaults['edge.streamFlushMs']);
+  assert.equal(config.logging.rust, configContract.loaderDefaults['logging.rust']);
   assert.equal(config.logging.node, configContract.loaderDefaults['logging.node']);
 });
 

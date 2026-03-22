@@ -483,13 +483,17 @@ impl OpenCodeBackend {
             }
         };
 
-        let event: OpenCodeEventEnvelope = match serde_json::from_value(unwrap_event_envelope(&raw_event)) {
-            Ok(event) => event,
-            Err(error) => {
-                debug!(?error, payload, "ignoring unsupported OpenCode event envelope");
-                return Ok(());
-            }
-        };
+        let event: OpenCodeEventEnvelope =
+            match serde_json::from_value(unwrap_event_envelope(&raw_event)) {
+                Ok(event) => event,
+                Err(error) => {
+                    debug!(
+                        ?error,
+                        payload, "ignoring unsupported OpenCode event envelope"
+                    );
+                    return Ok(());
+                }
+            };
 
         match event.kind.as_str() {
             "server.connected" => {
@@ -498,7 +502,7 @@ impl OpenCodeBackend {
             "session.updated" => {
                 let session: OpenCodeSession =
                     serde_json::from_value(nested_event_properties(&event.properties, &["info"]))
-                    .context("invalid session.updated payload")?;
+                        .context("invalid session.updated payload")?;
                 let mut state = self.state.lock().await;
                 if !state.knows_session(&session.id) {
                     return Ok(());
@@ -601,7 +605,8 @@ impl OpenCodeBackend {
         };
 
         if matches!(status, ThreadStatus::Idle) {
-            self.handle_session_idle(json!({ "sessionId": session_id })).await?;
+            self.handle_session_idle(json!({ "sessionId": session_id }))
+                .await?;
             return Ok(());
         }
 
@@ -657,11 +662,9 @@ impl OpenCodeBackend {
     }
 
     async fn handle_message_updated(&self, properties: Value) -> Result<()> {
-        let message: OpenCodeMessage = serde_json::from_value(nested_event_properties(
-            &properties,
-            &["info", "message"],
-        ))
-        .context("invalid message.updated payload")?;
+        let message: OpenCodeMessage =
+            serde_json::from_value(nested_event_properties(&properties, &["info", "message"]))
+                .context("invalid message.updated payload")?;
         if message.role != "assistant" {
             return Ok(());
         }
@@ -713,8 +716,8 @@ impl OpenCodeBackend {
         let Some(message_id) = message_id else {
             return Ok(());
         };
-        let field = value_string(&properties, &["field"])
-            .or_else(|| value_string(&part_value, &["field"]));
+        let field =
+            value_string(&properties, &["field"]).or_else(|| value_string(&part_value, &["field"]));
         let part_type = value_string(&part_value, &["type"]);
         if event_kind == "message.part.updated" && part_type.as_deref() != Some("text") {
             return Ok(());
@@ -1429,8 +1432,7 @@ mod tests {
             "text": "hello"
         });
 
-        let part: OpenCodePart =
-            serde_json::from_value(payload).expect("part should deserialize");
+        let part: OpenCodePart = serde_json::from_value(payload).expect("part should deserialize");
 
         assert_eq!(part.part_type, "text");
         assert_eq!(part.text.as_deref(), Some("hello"));

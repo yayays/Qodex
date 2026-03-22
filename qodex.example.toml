@@ -83,6 +83,44 @@ plugin = "builtin:console"
 # allow_from = ["c2c:YOUR_USER_OPENID"]
 # request_timeout_ms = 15000
 #
+# Optional QQ voice input pipeline. Current implementation:
+# - downloads a single inbound audio attachment
+# - transcribes it through the configured STT provider
+# - applies deterministic spoken-language cleanup
+# - either dispatches the normalized command to Qodex or asks the user to confirm
+#
+# [channels.qq.config.voice]
+# enabled = true
+# # When false, every voice command requires an explicit "确认" reply.
+# auto_send = false
+# confirmation_ttl_ms = 300000
+# # If the STT provider returns a numeric confidence below this threshold,
+# # confirmation is required. Providers that do not return confidence simply
+# # skip this check.
+# require_confirmation_below_confidence = 0.90
+# max_duration_ms = 120000
+# max_size_bytes = 10485760
+# temp_dir = "./data/tmp/voice"
+# cleanup_after_seconds = 600
+# allowed_mime_types = ["audio/amr", "audio/mpeg", "audio/wav", "audio/ogg", "audio/opus"]
+# allowed_extensions = ["amr", "mp3", "wav", "ogg", "opus", "silk"]
+#
+# [channels.qq.config.voice.stt]
+# # Currently implemented provider: "remote-whisper"
+# provider = "remote-whisper"
+# api_base_url = "https://YOUR-STT-ENDPOINT/v1/audio/transcriptions"
+# # Optional API key indirection via environment variable name.
+# api_key_env = "QODEX_STT_API_KEY"
+# model = "whisper-1"
+# language = "zh"
+# timeout_ms = 30000
+#
+# [channels.qq.config.voice.normalize]
+# enabled = true
+# strip_fillers = true
+# # When false, normalized slash commands such as "/approve" always require confirmation.
+# preserve_explicit_slash_commands = false
+#
 # Optional per-bot backend override. If omitted, this bot uses `[backend].kind`.
 # [channels.qq.config.backend]
 # kind = "opencode"

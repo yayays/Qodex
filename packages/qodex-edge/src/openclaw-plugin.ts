@@ -14,7 +14,7 @@ import {
 const PLUGIN_ID = 'qodex';
 const DEFAULT_CORE_URL = 'ws://127.0.0.1:7820/ws';
 const DEFAULT_RESPONSE_TIMEOUT_MS = 90_000;
-const DEFAULT_PLATFORM = 'qqbot';
+const DEFAULT_PLATFORM = 'openclaw';
 
 type JsonObject = Record<string, unknown>;
 
@@ -40,6 +40,7 @@ export interface OpenClawCommandContext {
   args?: string;
   commandBody?: string;
   config?: unknown;
+  pluginConfig?: unknown;
   [key: string]: unknown;
 }
 
@@ -48,6 +49,7 @@ interface ResolvedPluginConfig {
   coreAuthToken?: string;
   defaultWorkspace?: string;
   responseTimeoutMs: number;
+  defaultPlatform?: string;
 }
 
 interface TurnMatch {
@@ -99,13 +101,18 @@ export const qodexPluginConfigSchema = {
       default: DEFAULT_RESPONSE_TIMEOUT_MS,
       minimum: 1_000,
     },
+    defaultPlatform: {
+      type: 'string',
+      description: 'Fallback platform key when the transport does not provide a channel name.',
+      default: DEFAULT_PLATFORM,
+    },
   },
 } as const;
 
 export const qodexOpenClawPlugin = {
   id: PLUGIN_ID,
   name: 'Qodex',
-  description: 'Qodex commands for OpenClaw transports such as openclaw-qqbot.',
+  description: 'Qodex commands for OpenClaw / ClawBot transports such as QQ and WeChat WebChat.',
   configSchema: qodexPluginConfigSchema,
   register(api: OpenClawPluginApi): void {
     api.registerCommand({
@@ -535,6 +542,11 @@ function resolvePluginConfig(rootConfig: unknown): ResolvedPluginConfig {
       readPositiveInteger(pluginConfig.responseTimeoutMs) ??
       readPositiveInteger(process.env.QODEX_RESPONSE_TIMEOUT_MS) ??
       DEFAULT_RESPONSE_TIMEOUT_MS,
+    defaultPlatform:
+      readString(pluginConfig.defaultPlatform) ??
+      readString(pluginConfig.default_channel) ??
+      process.env.QODEX_OPENCLAW_DEFAULT_PLATFORM ??
+      DEFAULT_PLATFORM,
   };
 }
 
@@ -552,6 +564,7 @@ function resolvePluginConfigObject(rootConfig: unknown): JsonObject {
     ...(namespaceConfig ?? {}),
     ...(pluginEntry ?? {}),
     ...(entryConfig ?? {}),
+    ...(getNestedRecord(rootConfig, ['pluginConfig']) ?? {}),
     ...(directCandidate ?? {}),
   };
 }
@@ -561,12 +574,19 @@ function hasPluginConfigShape(value: JsonObject): boolean {
     Object.prototype.hasOwnProperty.call(value, 'coreUrl') ||
     Object.prototype.hasOwnProperty.call(value, 'coreAuthToken') ||
     Object.prototype.hasOwnProperty.call(value, 'defaultWorkspace') ||
-    Object.prototype.hasOwnProperty.call(value, 'responseTimeoutMs')
+    Object.prototype.hasOwnProperty.call(value, 'responseTimeoutMs') ||
+    Object.prototype.hasOwnProperty.call(value, 'defaultPlatform')
   );
 }
 
 function deriveConversation(context: OpenClawCommandContext): ConversationRef {
-  const platform = sanitizeSegment(readString(context.channel)) ?? DEFAULT_PLATFORM;
+  const pluginConfig = resolvePluginConfig(context.config ?? context.pluginConfig);
+  const platform =
+    sanitizePlatform(readString(context.channel))
+    ?? sanitizePlatform(readString((context as { transport?: unknown }).transport))
+    ?? sanitizePlatform(readString((context as { source?: unknown }).source))
+    ?? sanitizePlatform(pluginConfig.defaultPlatform)
+    ?? DEFAULT_PLATFORM;
 
   const hintedKey = pickFirstString(context, [
     ['conversationKey'],
@@ -597,8 +617,14 @@ function deriveConversation(context: OpenClawCommandContext): ConversationRef {
   const groupId = sanitizeExternalId(
     pickFirstString(context, [
       ['groupId'],
+      ['roomId'],
+      ['chatId'],
       ['message', 'groupId'],
+      ['message', 'roomId'],
+      ['message', 'chatId'],
       ['event', 'groupId'],
+      ['event', 'roomId'],
+      ['event', 'chatId'],
     ]),
   );
   if (groupId) {
@@ -606,16 +632,27 @@ function deriveConversation(context: OpenClawCommandContext): ConversationRef {
   }
 
   const scope =
-    sanitizeSegment(
+    sanitizeScope(
       pickFirstString(context, [
         ['scope'],
         ['chatType'],
+        ['scene'],
         ['conversation', 'scope'],
         ['message', 'scope'],
         ['event', 'scope'],
       ]),
-    ) ?? 'c2c';
-  const senderId = sanitizeExternalId(readString(context.senderId)) ?? 'anonymous';
+    ) ?? inferScopeFromContext(context) ?? 'c2c';
+  const senderId = sanitizeExternalId(
+    readString(context.senderId)
+    ?? pickFirstString(context, [
+      ['userId'],
+      ['contactId'],
+      ['fromUserId'],
+      ['sender', 'id'],
+      ['message', 'senderId'],
+      ['event', 'senderId'],
+    ]),
+  ) ?? 'anonymous';
   return makeConversation(platform, scope, senderId);
 }
 
@@ -659,6 +696,56 @@ function normalizeConversationHint(
     );
   }
 
+  return undefined;
+}
+
+function sanitizePlatform(value: string | undefined): string | undefined {
+  const normalized = sanitizeSegment(value);
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === 'wechat') {
+    return 'webchat';
+  }
+  return normalized;
+}
+
+function sanitizeScope(value: string | undefined): 'c2c' | 'group' | 'channel' | undefined {
+  const normalized = sanitizeSegment(value);
+  switch (normalized) {
+    case 'c2c':
+    case 'dm':
+    case 'direct':
+    case 'directmessage':
+    case 'private':
+    case 'friend':
+      return 'c2c';
+    case 'group':
+    case 'room':
+    case 'chatroom':
+      return 'group';
+    case 'channel':
+    case 'guild':
+      return 'channel';
+    default:
+      return undefined;
+  }
+}
+
+function inferScopeFromContext(context: OpenClawCommandContext): 'c2c' | 'group' | undefined {
+  if (
+    pickFirstString(context, [
+      ['groupId'],
+      ['roomId'],
+      ['chatId'],
+      ['message', 'groupId'],
+      ['message', 'roomId'],
+      ['event', 'groupId'],
+      ['event', 'roomId'],
+    ])
+  ) {
+    return 'group';
+  }
   return undefined;
 }
 

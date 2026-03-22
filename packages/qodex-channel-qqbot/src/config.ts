@@ -1,6 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+import { qqbotVoiceConfigSchema, resolveQQBotVoiceConfig } from './voice/config.js';
+import type { QQBotVoiceConfig } from './voice/types.js';
+
 export interface QQBotChannelConfig {
   appId: string;
   clientSecret: string;
@@ -11,6 +14,7 @@ export interface QQBotChannelConfig {
   gatewayIntent: number;
   allowFrom: string[];
   requestTimeoutMs: number;
+  voice: QQBotVoiceConfig;
 }
 
 const DEFAULT_API_BASE_URL = 'https://api.sgroup.qq.com';
@@ -106,6 +110,7 @@ export const qqbotPluginConfigSchema = {
       description: 'Snake-case alias of requestTimeoutMs.',
       default: 15000,
     },
+    voice: qqbotVoiceConfigSchema,
   },
 } as const;
 
@@ -158,7 +163,15 @@ export async function resolveQQBotChannelConfig(
       readInteger(input?.requestTimeoutMs) ??
       readInteger(input?.request_timeout_ms) ??
       15_000,
+    voice: resolveQQBotVoiceConfig(asRecord(input?.voice), baseDir),
   };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
 }
 
 async function readSecretFile(

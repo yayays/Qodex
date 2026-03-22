@@ -18,6 +18,25 @@ It is designed to sit between:
 - `QodexEdgeRuntime`
 - `CoreClient`
 
+## ClawBot / WeChat Compatibility
+
+`qodexOpenClawPlugin` is the compatibility entrypoint for OpenClaw / ClawBot-style command hosts.
+
+It now accepts more transport-neutral context shapes, including common WeChat-style fields such as:
+
+- `channel = "wechat"` or `channel = "webchat"`
+- `roomId` / `chatId` for group-style conversations
+- `contactId` / `userId` / `senderId` for direct conversations
+- `pluginConfig.defaultPlatform` when the transport does not pass a channel name
+
+Conversation normalization rules:
+
+- `wechat` is normalized to `webchat`
+- `roomId` / `chatId` infer `group` scope
+- direct-message aliases such as `dm`, `direct`, and `private` normalize to `c2c`
+
+That makes the existing OpenClaw compatibility plugin usable for ClawBot WeChat deployments without introducing a new Qodex channel package.
+
 ## Local development
 
 ```bash

@@ -4,7 +4,8 @@
   "private": true,
   "workspaces": [
     "packages/qodex-edge",
-    "packages/qodex-channel-qqbot"
+    "packages/qodex-channel-qqbot",
+    "packages/qodex-clawbot-bridge"
   ],
   "scripts": {
     "generate:contracts": "node ./scripts/generate-contract-artifacts.mjs",
@@ -16,6 +17,8 @@
     "dev:edge": "npm --workspace @qodex/edge run dev",
     "host:qodex": "npm --workspace @qodex/edge run host --",
     "build:qqbot": "npm --workspace @qodex/channel-qqbot run build",
-    "check:qqbot": "npm --workspace @qodex/channel-qqbot run check"
+    "check:qqbot": "npm --workspace @qodex/channel-qqbot run check",
+    "build:clawbot-bridge": "npm --workspace @qodex/clawbot-bridge run build",
+    "check:clawbot-bridge": "npm --workspace @qodex/clawbot-bridge run check"
   }
 }

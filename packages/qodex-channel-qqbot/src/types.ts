@@ -1,10 +1,13 @@
 export interface QQBotMessageAttachment {
   content_type?: string;
   filename?: string;
+  duration?: number;
+  file_type?: string;
   height?: number;
   width?: number;
   size?: number;
   url?: string;
+  audio_url?: string;
 }
 
 export interface QQBotC2CMessageEvent {

@@ -1,6 +1,7 @@
 import type {
   ChannelPlugin,
   ChannelSendTextParams,
+  QodexPluginApi,
   QodexPluginExtension,
 } from '@qodex/edge';
 import { emptyPluginConfigSchema } from '@qodex/edge';
@@ -75,7 +76,7 @@ export const qqbotChannelPlugin: ChannelPlugin = {
   },
 };
 
-export const qodexQQBotPlugin: QodexPluginExtension = {
+const qodexQQBotPluginDefinition = {
   id: 'qodex-channel-qqbot',
   name: 'Qodex QQ Bot Channel',
   description:
@@ -93,10 +94,12 @@ export const qodexQQBotPlugin: QodexPluginExtension = {
     ...emptyPluginConfigSchema(),
     ...qqbotPluginConfigSchema,
   },
-  register(api) {
+  register(api: QodexPluginApi) {
     api.registerChannel({ plugin: qqbotChannelPlugin });
   },
 };
+
+export const qodexQQBotPlugin: QodexPluginExtension = qodexQQBotPluginDefinition;
 
 export default qodexQQBotPlugin;
 
@@ -104,6 +107,13 @@ export type { QQBotChannelConfig } from './config.js';
 export * from './allow.js';
 export * from './config.js';
 export * from './target.js';
+export * from './voice/config.js';
+export * from './voice/detect.js';
+export * from './voice/download.js';
+export * from './voice/confirm.js';
+export * from './voice/normalize.js';
+export * from './voice/stt.js';
+export * from './voice/types.js';
 
 async function resolveOutboundConfig(
   params: ChannelSendTextParams,

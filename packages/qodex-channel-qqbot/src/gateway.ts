@@ -8,7 +8,7 @@ import {
   sendQQBotText,
 } from './api.js';
 import { isQQBotSenderAllowed } from './allow.js';
-import { resolveQQBotChannelConfig } from './config.js';
+import { QQBotChannelConfig, resolveQQBotChannelConfig } from './config.js';
 import {
   QQBotC2CMessageEvent,
   QQBotGroupMessageEvent,
@@ -18,6 +18,18 @@ import {
   QQBotWSPayload,
 } from './types.js';
 import type { QQBotTarget } from './target.js';
+import { findVoiceAttachments } from './voice/detect.js';
+import { downloadVoiceAttachment } from './voice/download.js';
+import {
+  consumePendingVoiceConfirmation,
+  evaluateVoiceConfirmationPolicy,
+  formatVoiceConfirmationRequest,
+  parseVoiceConfirmationIntent,
+  savePendingVoiceConfirmation,
+} from './voice/confirm.js';
+import { normalizeVoiceTranscript } from './voice/normalize.js';
+import { transcribeVoiceAttachment } from './voice/stt.js';
+import type { VoiceAttachmentRef, VoiceTranscript } from './voice/types.js';
 
 const WS_OP_DISPATCH = 0;
 const WS_OP_HEARTBEAT = 1;
@@ -234,7 +246,7 @@ async function connectOnce(
               getBotUserId() {
                 return botUserId;
               },
-            }).catch((error) => {
+            }, state.config).catch((error) => {
               lastError =
                 error instanceof Error ? error : new Error(String(error));
               context.log.error(
@@ -342,6 +354,7 @@ async function handleDispatch(
     setBotUserId(value: string | undefined): void;
     getBotUserId(): string | undefined;
   },
+  config: QQBotChannelConfig,
 ): Promise<void> {
   switch (payload.t) {
     case 'READY': {
@@ -372,6 +385,7 @@ async function handleDispatch(
       await dispatchC2CMessage(
         context,
         payload.d as QQBotC2CMessageEvent,
+        config,
       );
       return;
     case 'GROUP_AT_MESSAGE_CREATE':
@@ -379,6 +393,7 @@ async function handleDispatch(
         context,
         payload.d as QQBotGroupMessageEvent,
         state.getBotUserId(),
+        config,
       );
       return;
     case 'AT_MESSAGE_CREATE':
@@ -386,6 +401,7 @@ async function handleDispatch(
         context,
         payload.d as QQBotGuildMessageEvent,
         state.getBotUserId(),
+        config,
       );
       return;
     default:
@@ -461,6 +477,7 @@ export async function sendModelsCommandResponse(
 async function dispatchC2CMessage(
   context: ChannelGatewayContext,
   event: QQBotC2CMessageEvent,
+  config: QQBotChannelConfig,
 ): Promise<void> {
   if (
     !isQQBotSenderAllowed(
@@ -476,8 +493,8 @@ async function dispatchC2CMessage(
     return;
   }
 
-  const payload = buildInboundPayload(event.content, event.attachments);
-  if (!payload.text && payload.images.length === 0) {
+  const payload = buildInboundPayloadWithVoice(event.content, event.attachments, config.voice);
+  if (!payload.text && payload.images.length === 0 && payload.voiceAttachments.length === 0) {
     return;
   }
 
@@ -490,7 +507,36 @@ async function dispatchC2CMessage(
     return;
   }
 
+  if (
+    await tryHandleVoiceConfirmationMessage({
+      context,
+      config,
+      scope: 'c2c',
+      targetId: event.author.user_openid,
+      senderId: event.author.user_openid,
+      senderName: undefined,
+      replyToId: event.id,
+      text: payload.text,
+    })
+  ) {
+    return;
+  }
+
   const channelId = context.account.instanceId;
+  if (payload.voiceAttachments.length > 0) {
+    await handleVoiceAttachmentMessage({
+      context,
+      config,
+      scope: 'c2c',
+      targetId: event.author.user_openid,
+      senderId: event.author.user_openid,
+      replyToId: event.id,
+      event,
+      voiceAttachments: payload.voiceAttachments,
+    });
+    return;
+  }
+
   await context.runtime.dispatchInbound({
     channelId,
     platform: qqbotPlatformForInstance(channelId),
@@ -510,7 +556,11 @@ async function dispatchGroupMessage(
   context: ChannelGatewayContext,
   event: QQBotGroupMessageEvent,
   botUserId?: string,
+  config?: QQBotChannelConfig,
 ): Promise<void> {
+  if (!config) {
+    throw new Error('qqbot config is required for group message dispatch');
+  }
   if (
     !isQQBotSenderAllowed(
       (context.getStatus().allowFrom as string[] | undefined) ?? [],
@@ -525,15 +575,45 @@ async function dispatchGroupMessage(
     return;
   }
 
-  const payload = buildInboundPayload(
+  const payload = buildInboundPayloadWithVoice(
     stripBotMention(event.content, botUserId),
     event.attachments,
+    config.voice,
   );
-  if (!payload.text && payload.images.length === 0) {
+  if (!payload.text && payload.images.length === 0 && payload.voiceAttachments.length === 0) {
+    return;
+  }
+
+  if (
+    await tryHandleVoiceConfirmationMessage({
+      context,
+      config,
+      scope: 'group',
+      targetId: event.group_openid,
+      senderId: event.author.member_openid,
+      senderName: undefined,
+      replyToId: event.id,
+      text: payload.text,
+    })
+  ) {
     return;
   }
 
   const channelId = context.account.instanceId;
+  if (payload.voiceAttachments.length > 0) {
+    await handleVoiceAttachmentMessage({
+      context,
+      config,
+      scope: 'group',
+      targetId: event.group_openid,
+      senderId: event.author.member_openid,
+      replyToId: event.id,
+      event,
+      voiceAttachments: payload.voiceAttachments,
+    });
+    return;
+  }
+
   await context.runtime.dispatchInbound({
     channelId,
     platform: qqbotPlatformForInstance(channelId),
@@ -553,7 +633,11 @@ async function dispatchGuildMessage(
   context: ChannelGatewayContext,
   event: QQBotGuildMessageEvent,
   botUserId?: string,
+  config?: QQBotChannelConfig,
 ): Promise<void> {
+  if (!config) {
+    throw new Error('qqbot config is required for guild message dispatch');
+  }
   if (
     !isQQBotSenderAllowed(
       (context.getStatus().allowFrom as string[] | undefined) ?? [],
@@ -568,15 +652,46 @@ async function dispatchGuildMessage(
     return;
   }
 
-  const payload = buildInboundPayload(
+  const payload = buildInboundPayloadWithVoice(
     stripBotMention(event.content, botUserId),
     event.attachments,
+    config.voice,
   );
-  if (!payload.text && payload.images.length === 0) {
+  if (!payload.text && payload.images.length === 0 && payload.voiceAttachments.length === 0) {
+    return;
+  }
+
+  if (
+    await tryHandleVoiceConfirmationMessage({
+      context,
+      config,
+      scope: 'channel',
+      targetId: event.channel_id,
+      senderId: event.author.id,
+      senderName: event.member?.nick ?? event.author.username,
+      replyToId: event.id,
+      text: payload.text,
+    })
+  ) {
     return;
   }
 
   const channelId = context.account.instanceId;
+  if (payload.voiceAttachments.length > 0) {
+    await handleVoiceAttachmentMessage({
+      context,
+      config,
+      scope: 'channel',
+      targetId: event.channel_id,
+      senderId: event.author.id,
+      senderName: event.member?.nick ?? event.author.username,
+      replyToId: event.id,
+      event,
+      voiceAttachments: payload.voiceAttachments,
+    });
+    return;
+  }
+
   await context.runtime.dispatchInbound({
     channelId,
     platform: qqbotPlatformForInstance(channelId),
@@ -681,6 +796,7 @@ function normalizeInstanceId(instanceId: string): string {
 export function buildInboundPayload(
   content: string,
   attachments: Array<{
+    duration?: number;
     filename?: string;
     url?: string;
     content_type?: string;
@@ -688,7 +804,8 @@ export function buildInboundPayload(
     height?: number;
     size?: number;
   }> | undefined,
-): { text: string; images: ChannelInboundImage[] } {
+  voiceAttachments: VoiceAttachmentRef[] = [],
+): { text: string; images: ChannelInboundImage[]; voiceAttachments: VoiceAttachmentRef[] } {
   const lines = [content.trim()].filter(Boolean);
   const images: ChannelInboundImage[] = [];
   for (const attachment of attachments ?? []) {
@@ -722,8 +839,249 @@ export function buildInboundPayload(
   return {
     text: lines.join('\n').trim(),
     images,
+    voiceAttachments,
   };
 }
+
+export function buildInboundPayloadWithVoice(
+  content: string,
+  attachments: QQBotMessageEventAttachments | undefined,
+  voiceConfig: Awaited<ReturnType<typeof resolveQQBotChannelConfig>>['voice'],
+): { text: string; images: ChannelInboundImage[]; voiceAttachments: VoiceAttachmentRef[] } {
+  const voiceAttachments = findVoiceAttachments(attachments, voiceConfig);
+  return buildInboundPayload(content, attachments, voiceAttachments);
+}
+
+export async function handleVoiceAttachmentMessage(args: {
+  context: ChannelGatewayContext;
+  config: QQBotChannelConfig;
+  scope: 'c2c' | 'group' | 'channel';
+  targetId: string;
+  senderId: string;
+  senderName?: string;
+  replyToId: string;
+  event: unknown;
+  voiceAttachments: VoiceAttachmentRef[];
+  sendText?: typeof sendQQBotText;
+  downloadAttachment?: typeof downloadVoiceAttachment;
+  transcribeAttachment?: typeof transcribeVoiceAttachment;
+  normalizeTranscript?: typeof normalizeVoiceTranscript;
+}): Promise<void> {
+  const sendText = args.sendText ?? sendQQBotText;
+  const downloadAttachment = args.downloadAttachment ?? downloadVoiceAttachment;
+  const transcribeAttachment = args.transcribeAttachment ?? transcribeVoiceAttachment;
+  const normalizeTranscript = args.normalizeTranscript ?? normalizeVoiceTranscript;
+  const target = buildQQBotTarget(args.scope, args.targetId);
+
+  if (!args.config.voice.enabled) {
+    return;
+  }
+
+  if (args.voiceAttachments.length !== 1) {
+    await sendText(
+      args.config,
+      target,
+      'Voice message received, but only a single audio attachment is supported right now.',
+      args.replyToId,
+    );
+    return;
+  }
+
+  const attachment = args.voiceAttachments[0];
+  let downloaded: Awaited<ReturnType<typeof downloadVoiceAttachment>> | undefined;
+  let transcript: VoiceTranscript | undefined;
+  try {
+    downloaded = await downloadAttachment({
+      attachment,
+      config: args.config.voice,
+      instanceId: args.context.account.instanceId,
+      conversationKey: qqbotCanonicalTarget(args.scope, args.targetId),
+      signal: AbortSignal.timeout(args.config.requestTimeoutMs),
+    });
+    args.context.log.info(
+      `[qqbot:${args.context.account.instanceId}] downloaded voice attachment to ${downloaded.filePath}`,
+    );
+    transcript = await transcribeAttachment({
+      attachment: downloaded,
+      config: args.config.voice,
+      signal: AbortSignal.timeout(args.config.voice.stt.timeoutMs),
+    });
+    const normalized = normalizeTranscript(transcript);
+    const decision = evaluateVoiceConfirmationPolicy({
+      config: args.config.voice,
+      transcript,
+      normalized,
+      scope: args.scope,
+    });
+    if (decision.requiresConfirmation) {
+      savePendingVoiceConfirmation({
+        instanceId: args.context.account.instanceId,
+        scope: args.scope,
+        targetId: args.targetId,
+        senderId: args.senderId,
+        senderName: args.senderName,
+        accountId: args.context.account.accountId,
+        platform: qqbotPlatformForInstance(args.context.account.instanceId),
+        replyToId: args.replyToId,
+        event: args.event,
+        transcript,
+        normalized,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + args.config.voice.confirmationTtlMs,
+      });
+      await sendText(
+        args.config,
+        target,
+        formatVoiceConfirmationRequest({
+          transcript,
+          normalized,
+          decision,
+        }),
+        args.replyToId,
+      );
+      return;
+    }
+    const channelId = args.context.account.instanceId;
+    await args.context.runtime.dispatchInbound({
+      channelId,
+      platform: qqbotPlatformForInstance(channelId),
+      scope: args.scope,
+      targetId: args.targetId,
+      senderId: args.senderId,
+      senderName: args.senderName,
+      text: normalized.commandText,
+      accountId: args.context.account.accountId,
+      replyToId: args.replyToId,
+      to: qqbotCanonicalTarget(args.scope, args.targetId),
+      raw: {
+        source: 'qqbot-voice',
+        event: args.event,
+        transcript,
+        normalized,
+      },
+    });
+    await sendText(
+      args.config,
+      target,
+      formatVoiceTranscriptReply(transcript, normalized.commandText),
+      args.replyToId,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    args.context.log.error(
+      `[qqbot:${args.context.account.instanceId}] failed to process voice attachment: ${message}`,
+    );
+    await sendText(
+      args.config,
+      target,
+      `Voice message could not be downloaded: ${message}`,
+      args.replyToId,
+    );
+  } finally {
+    await downloaded?.cleanup().catch(() => undefined);
+  }
+}
+
+export function formatVoiceTranscriptReply(
+  transcript: VoiceTranscript,
+  commandText?: string,
+): string {
+  const lines = [
+    `Voice transcript: ${transcript.text}`,
+    `Provider: ${transcript.provider}`,
+  ];
+
+  if (transcript.language) {
+    lines.push(`Language: ${transcript.language}`);
+  }
+  if (typeof transcript.durationMs === 'number') {
+    lines.push(`Duration: ${transcript.durationMs}ms`);
+  }
+  if (commandText) {
+    lines.push(`Normalized command: ${commandText}`);
+    lines.push('Voice command sent to Qodex.');
+  } else {
+    lines.push('Transcription completed. Backend dispatch is not enabled yet.');
+  }
+  return lines.join('\n');
+}
+
+export async function tryHandleVoiceConfirmationMessage(args: {
+  context: ChannelGatewayContext;
+  config: QQBotChannelConfig;
+  scope: 'c2c' | 'group' | 'channel';
+  targetId: string;
+  senderId: string;
+  senderName?: string;
+  replyToId: string;
+  text: string;
+  sendText?: typeof sendQQBotText;
+}): Promise<boolean> {
+  const intent = parseVoiceConfirmationIntent(args.text);
+  if (!intent) {
+    return false;
+  }
+
+  const pending = consumePendingVoiceConfirmation({
+    instanceId: args.context.account.instanceId,
+    scope: args.scope,
+    targetId: args.targetId,
+    senderId: args.senderId,
+  });
+  if (!pending) {
+    return false;
+  }
+
+  const sendText = args.sendText ?? sendQQBotText;
+  const target = buildQQBotTarget(args.scope, args.targetId);
+
+  if (intent === 'cancel') {
+    await sendText(
+      args.config,
+      target,
+      'Voice command cancelled.',
+      args.replyToId,
+    );
+    return true;
+  }
+
+  await args.context.runtime.dispatchInbound({
+    channelId: args.context.account.instanceId,
+    platform: pending.platform,
+    scope: pending.scope,
+    targetId: pending.targetId,
+    senderId: pending.senderId,
+    senderName: pending.senderName,
+    text: pending.normalized.commandText,
+    accountId: pending.accountId,
+    replyToId: args.replyToId,
+    to: qqbotCanonicalTarget(pending.scope, pending.targetId),
+    raw: {
+      source: 'qqbot-voice-confirmed',
+      event: pending.event,
+      transcript: pending.transcript,
+      normalized: pending.normalized,
+      confirmedAt: Date.now(),
+    },
+  });
+  await sendText(
+    args.config,
+    target,
+    `Confirmed voice command: ${pending.normalized.commandText}`,
+    args.replyToId,
+  );
+  return true;
+}
+
+type QQBotMessageEventAttachments = Array<{
+  duration?: number;
+  filename?: string;
+  url?: string;
+  content_type?: string;
+  width?: number;
+  height?: number;
+  size?: number;
+}> | undefined;
 
 function isImageAttachment(attachment: {
   filename?: string;

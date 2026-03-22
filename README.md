@@ -23,6 +23,10 @@ In short: Qodex lets you carry your own Codex / OpenCode workflow with you.
 - `qodex-edge` — TypeScript host for channels, routing, commands, and delivery
 - `packages/qodex-channel-qqbot` — QQ channel plugin
 
+## Architecture
+
+- current implemented architecture: [docs/current-architecture.md](./docs/current-architecture.md)
+
 ## Current Scope
 
 - Codex and OpenCode backend support

@@ -133,6 +133,18 @@ export const qqbotVoiceConfigSchema = {
         },
         provider: { type: 'string' },
         model: { type: 'string' },
+        apiBaseUrl: { type: 'string' },
+        api_base_url: { type: 'string' },
+        apiKeyEnv: { type: 'string' },
+        api_key_env: { type: 'string' },
+        timeoutMs: {
+          type: 'integer',
+          default: 15000,
+        },
+        timeout_ms: {
+          type: 'integer',
+          default: 15000,
+        },
         stripFillers: {
           type: 'boolean',
           default: true,
@@ -199,6 +211,16 @@ export function resolveQQBotVoiceConfig(
       enabled: readBoolean(normalizeConfig?.enabled) ?? true,
       provider: readString(normalizeConfig?.provider),
       model: readString(normalizeConfig?.model),
+      apiBaseUrl:
+        readString(normalizeConfig?.apiBaseUrl)
+        ?? readString(normalizeConfig?.api_base_url),
+      apiKeyEnv:
+        readString(normalizeConfig?.apiKeyEnv)
+        ?? readString(normalizeConfig?.api_key_env),
+      timeoutMs:
+        readInteger(normalizeConfig?.timeoutMs)
+        ?? readInteger(normalizeConfig?.timeout_ms)
+        ?? 15_000,
       stripFillers:
         readBoolean(normalizeConfig?.stripFillers)
         ?? readBoolean(normalizeConfig?.strip_fillers)

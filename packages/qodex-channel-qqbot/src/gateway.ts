@@ -27,7 +27,7 @@ import {
   parseVoiceConfirmationIntent,
   savePendingVoiceConfirmation,
 } from './voice/confirm.js';
-import { normalizeVoiceTranscript } from './voice/normalize.js';
+import { normalizeVoiceTranscriptWithConfig } from './voice/normalize.js';
 import { transcribeVoiceAttachment } from './voice/stt.js';
 import type { VoiceAttachmentRef, VoiceTranscript } from './voice/types.js';
 
@@ -67,6 +67,8 @@ export async function startQQBotGateway(
     gatewayIntent: config.gatewayIntent || DEFAULT_GATEWAY_INTENT,
     mode: 'websocket',
   });
+
+  logVoicePipelineConfig(context, config);
 
   void runGatewayLoop(context, config, gatewayUrl);
 }
@@ -865,12 +867,12 @@ export async function handleVoiceAttachmentMessage(args: {
   sendText?: typeof sendQQBotText;
   downloadAttachment?: typeof downloadVoiceAttachment;
   transcribeAttachment?: typeof transcribeVoiceAttachment;
-  normalizeTranscript?: typeof normalizeVoiceTranscript;
+  normalizeTranscript?: typeof normalizeVoiceTranscriptWithConfig;
 }): Promise<void> {
   const sendText = args.sendText ?? sendQQBotText;
   const downloadAttachment = args.downloadAttachment ?? downloadVoiceAttachment;
   const transcribeAttachment = args.transcribeAttachment ?? transcribeVoiceAttachment;
-  const normalizeTranscript = args.normalizeTranscript ?? normalizeVoiceTranscript;
+  const normalizeTranscript = args.normalizeTranscript ?? normalizeVoiceTranscriptWithConfig;
   const target = buildQQBotTarget(args.scope, args.targetId);
 
   if (!args.config.voice.enabled) {
@@ -906,7 +908,26 @@ export async function handleVoiceAttachmentMessage(args: {
       config: args.config.voice,
       signal: AbortSignal.timeout(args.config.voice.stt.timeoutMs),
     });
-    const normalized = normalizeTranscript(transcript);
+    args.context.log.info(
+      `[qqbot:${args.context.account.instanceId}] voice transcript ready provider=${transcript.provider} language=${transcript.language ?? 'unknown'} duration_ms=${transcript.durationMs ?? 'unknown'} confidence=${transcript.confidence ?? 'unknown'}`,
+    );
+    const normalized = await normalizeTranscript({
+      transcript,
+      config: args.config.voice,
+      log: {
+        info: (message) =>
+          args.context.log.info(
+            `[qqbot:${args.context.account.instanceId}] ${message}`,
+          ),
+        warn: (message) =>
+          args.context.log.warn(
+            `[qqbot:${args.context.account.instanceId}] ${message}`,
+          ),
+      },
+    });
+    args.context.log.info(
+      `[qqbot:${args.context.account.instanceId}] voice normalize completed source=${normalized.source ?? 'unknown'} provider=${normalized.provider ?? 'local-rules'} model=${normalized.model ?? 'n/a'} command="${normalized.commandText}"`,
+    );
     const decision = evaluateVoiceConfirmationPolicy({
       config: args.config.voice,
       transcript,
@@ -980,6 +1001,41 @@ export async function handleVoiceAttachmentMessage(args: {
   } finally {
     await downloaded?.cleanup().catch(() => undefined);
   }
+}
+
+function logVoicePipelineConfig(
+  context: ChannelGatewayContext,
+  config: QQBotChannelConfig,
+): void {
+  const sttState = config.voice.enabled
+    ? [
+      `provider=${config.voice.stt.provider ?? 'unset'}`,
+      `api=${config.voice.stt.apiBaseUrl ?? 'unset'}`,
+      `model=${config.voice.stt.model ?? 'unset'}`,
+      `language=${config.voice.stt.language ?? 'auto'}`,
+      `timeout_ms=${config.voice.stt.timeoutMs}`,
+    ].join(' ')
+    : 'disabled';
+  const normalizeState = !config.voice.enabled
+    ? 'disabled'
+    : [
+      `enabled=${config.voice.normalize.enabled}`,
+      `api=${config.voice.normalize.apiBaseUrl ?? 'local-rules-only'}`,
+      `model=${config.voice.normalize.model ?? 'default'}`,
+      `timeout_ms=${config.voice.normalize.timeoutMs}`,
+      `strip_fillers=${config.voice.normalize.stripFillers}`,
+      `preserve_slash=${config.voice.normalize.preserveExplicitSlashCommands}`,
+    ].join(' ');
+
+  context.log.info(
+    `[qqbot:${context.account.instanceId}] voice pipeline ${config.voice.enabled ? 'enabled' : 'disabled'} auto_send=${config.voice.autoSend} confirm_ttl_ms=${config.voice.confirmationTtlMs} max_duration_ms=${config.voice.maxDurationMs} max_size_bytes=${config.voice.maxSizeBytes}`,
+  );
+  context.log.info(
+    `[qqbot:${context.account.instanceId}] voice stt ${sttState}`,
+  );
+  context.log.info(
+    `[qqbot:${context.account.instanceId}] voice normalize ${normalizeState}`,
+  );
 }
 
 export function formatVoiceTranscriptReply(

@@ -65,6 +65,10 @@ timeout_ms = 30000
 
 [channels.qq.config.voice.normalize]
 enabled = true
+api_base_url = "http://127.0.0.1:8865/v1/normalize"
+api_key_env = "QODEX_NORMALIZE_API_KEY"
+timeout_ms = 15000
+model = "qwen2.5-7b-instruct"
 strip_fillers = true
 preserve_explicit_slash_commands = false
 ```
@@ -80,8 +84,18 @@ Voice config reference:
 - `voice.allowed_mime_types` and `voice.allowed_extensions`: audio detection allow-list.
 - `voice.stt.provider`: currently only `remote-whisper` is supported.
 - `voice.stt.api_key_env`: optional environment variable name that holds the STT API key.
+- `voice.normalize.api_base_url`: optional remote normalize endpoint. `voiceApi` uses `POST /v1/normalize`.
+- `voice.normalize.api_key_env`: optional environment variable name that holds the normalize Bearer token.
+- `voice.normalize.timeout_ms`: request timeout for the remote normalize call.
+- `voice.normalize.model`: optional model override forwarded to the normalize service.
 - `voice.normalize.strip_fillers`: removes common spoken fillers such as `嗯`, `呃`, `那个`.
 - `voice.normalize.preserve_explicit_slash_commands`: when `false`, normalized slash commands require confirmation.
+
+Remote normalize behavior:
+
+- when `voice.normalize.api_base_url` is set, the plugin calls that endpoint with the transcript text and current normalize flags
+- the request body matches `/Users/zain/Development/ai-ml/voiceApi/INTEGRATION.md`: `text`, `mode`, `language`, `strip_fillers`, `preserve_explicit_slash_commands`, optional `model`
+- if the remote normalize call fails, times out, or returns an invalid payload, Qodex falls back to the built-in deterministic Chinese cleanup rules
 
 Confirmation behavior:
 

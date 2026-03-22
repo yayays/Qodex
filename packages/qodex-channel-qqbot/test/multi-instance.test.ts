@@ -28,7 +28,10 @@ import {
   parseVoiceConfirmationIntent,
   peekPendingVoiceConfirmation,
 } from '../src/voice/confirm.js';
-import { normalizeVoiceTranscript } from '../src/voice/normalize.js';
+import {
+  normalizeVoiceTranscript,
+  normalizeVoiceTranscriptWithConfig,
+} from '../src/voice/normalize.js';
 import { createVoiceSttProvider, transcribeVoiceAttachment } from '../src/voice/stt.js';
 
 test('default qq instance keeps legacy qqbot platform key', () => {
@@ -238,6 +241,9 @@ test('resolveQQBotChannelConfig parses nested voice aliases', async () => {
         },
         normalize: {
           enabled: false,
+          api_base_url: 'http://127.0.0.1:8865/v1/normalize',
+          api_key_env: 'QODEX_NORMALIZE_API_KEY',
+          timeout_ms: 12000,
           strip_fillers: false,
           preserve_explicit_slash_commands: true,
         },
@@ -260,6 +266,9 @@ test('resolveQQBotChannelConfig parses nested voice aliases', async () => {
   assert.equal(config.voice.stt.apiKeyEnv, 'QODEX_STT_API_KEY');
   assert.equal(config.voice.stt.timeoutMs, 18000);
   assert.equal(config.voice.normalize.enabled, false);
+  assert.equal(config.voice.normalize.apiBaseUrl, 'http://127.0.0.1:8865/v1/normalize');
+  assert.equal(config.voice.normalize.apiKeyEnv, 'QODEX_NORMALIZE_API_KEY');
+  assert.equal(config.voice.normalize.timeoutMs, 12000);
   assert.equal(config.voice.normalize.stripFillers, false);
   assert.equal(config.voice.normalize.preserveExplicitSlashCommands, true);
 });
@@ -520,6 +529,7 @@ test('handleVoiceAttachmentMessage downloads audio and replies with phase-2 stat
           cleanText: '看一下当前仓库状态',
           commandText: '看一下当前仓库状态',
           removedFillers: ['嗯'],
+          source: 'local-rules',
         },
       },
     },
@@ -665,6 +675,7 @@ test('normalizeVoiceTranscript removes filler words and polite prefixes', () => 
       cleanText: '看一下 当前仓库状态',
       commandText: '看一下 当前仓库状态',
       removedFillers: ['嗯'],
+      source: 'local-rules',
     },
   );
 });
@@ -680,6 +691,7 @@ test('normalizeVoiceTranscript rewrites long spoken chinese question into cleare
       cleanText: '评估当前日志输出是否清晰明确，并指出可以改进的地方。请仔细梳理。',
       commandText: '评估当前日志输出是否清晰明确，并指出可以改进的地方。请仔细梳理。',
       removedFillers: ['呃'],
+      source: 'local-rules',
     },
   );
 });
@@ -695,6 +707,7 @@ test('normalizeVoiceTranscript normalizes common chinese task prefixes and weak 
       cleanText: '查看这个接口的日志，并查看还有没有明显问题。',
       commandText: '查看这个接口的日志，并查看还有没有明显问题。',
       removedFillers: [],
+      source: 'local-rules',
     },
   );
 
@@ -708,6 +721,7 @@ test('normalizeVoiceTranscript normalizes common chinese task prefixes and weak 
       cleanText: '分析这个错误栈',
       commandText: '分析这个错误栈',
       removedFillers: [],
+      source: 'local-rules',
     },
   );
 
@@ -721,8 +735,131 @@ test('normalizeVoiceTranscript normalizes common chinese task prefixes and weak 
       cleanText: '检查一遍这个提交',
       commandText: '检查一遍这个提交',
       removedFillers: [],
+      source: 'local-rules',
     },
   );
+});
+
+test('normalizeVoiceTranscriptWithConfig uses remote voiceApi normalize result when configured', async () => {
+  const config = await resolveQQBotChannelConfig({
+    appId: 'app-1',
+    clientSecret: 'secret-1',
+    voice: {
+      enabled: true,
+      normalize: {
+        enabled: true,
+        api_base_url: 'http://127.0.0.1:8865/v1/normalize',
+        api_key_env: 'QODEX_NORMALIZE_API_KEY',
+        timeout_ms: 12000,
+        strip_fillers: true,
+        preserve_explicit_slash_commands: false,
+      },
+    },
+  });
+
+  process.env.QODEX_NORMALIZE_API_KEY = 'normalize-secret';
+  try {
+    let requestUrl = '';
+    let requestInit: RequestInit | undefined;
+    const normalized = await normalizeVoiceTranscriptWithConfig({
+      transcript: {
+        text: '嗯 帮我看一下这个仓库昨天那个问题',
+        provider: 'remote-whisper',
+        language: 'zh',
+      },
+      config: config.voice,
+      fetchImpl: async (input, init) => {
+        requestUrl = String(input);
+        requestInit = init;
+        return new Response(JSON.stringify({
+          original_text: '嗯 帮我看一下这个仓库昨天那个问题',
+          clean_text: '帮我看一下这个仓库昨天那个问题。',
+          command_text: '查看这个仓库昨天的问题',
+          risk_flags: ['ambiguous-reference'],
+          notes: ['“那个问题”缺少明确上下文。'],
+          provider: 'openai-compatible',
+          model: 'qwen2.5-7b-instruct',
+        }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        });
+      },
+    });
+
+    assert.equal(requestUrl, 'http://127.0.0.1:8865/v1/normalize');
+    assert.equal(requestInit?.method, 'POST');
+    assert.equal(
+      (requestInit?.headers as Record<string, string>).Authorization,
+      'Bearer normalize-secret',
+    );
+    assert.deepEqual(JSON.parse(String(requestInit?.body)), {
+      text: '嗯 帮我看一下这个仓库昨天那个问题',
+      mode: 'command',
+      language: 'zh',
+      strip_fillers: true,
+      preserve_explicit_slash_commands: false,
+    });
+    assert.deepEqual(normalized, {
+      originalText: '嗯 帮我看一下这个仓库昨天那个问题',
+      cleanText: '帮我看一下这个仓库昨天那个问题。',
+      commandText: '查看这个仓库昨天的问题',
+      removedFillers: ['嗯'],
+      riskFlags: ['ambiguous-reference'],
+      notes: ['“那个问题”缺少明确上下文。'],
+      provider: 'openai-compatible',
+      model: 'qwen2.5-7b-instruct',
+      source: 'remote-api',
+    });
+  } finally {
+    delete process.env.QODEX_NORMALIZE_API_KEY;
+  }
+});
+
+test('normalizeVoiceTranscriptWithConfig falls back to local rules when remote normalize fails', async () => {
+  const config = await resolveQQBotChannelConfig({
+    appId: 'app-1',
+    clientSecret: 'secret-1',
+    voice: {
+      enabled: true,
+      normalize: {
+        enabled: true,
+        api_base_url: 'http://127.0.0.1:8865/v1/normalize',
+      },
+    },
+  });
+
+  const transcript = {
+    text: '你帮我分析下这个错误栈',
+    provider: 'remote-whisper',
+    language: 'zh',
+  } as const;
+  const warnings: string[] = [];
+  const normalized = await normalizeVoiceTranscriptWithConfig({
+    transcript,
+    config: config.voice,
+    log: {
+      warn(message) {
+        warnings.push(message);
+      },
+    },
+    fetchImpl: async () =>
+      new Response(JSON.stringify({
+        detail: 'Normalize upstream connection failed',
+      }), {
+        status: 502,
+        statusText: 'Bad Gateway',
+        headers: {
+          'content-type': 'application/json',
+        },
+      }),
+  });
+
+  assert.deepEqual(normalized, normalizeVoiceTranscript(transcript));
+  assert.deepEqual(warnings, [
+    'voice normalize via voiceApi failed status=502 status_text="Bad Gateway" detail="Normalize upstream connection failed"; falling back to local rules',
+  ]);
 });
 
 test('evaluateVoiceConfirmationPolicy requires confirmation for low confidence and risky commands', () => {
@@ -755,6 +892,7 @@ test('evaluateVoiceConfirmationPolicy requires confirmation for low confidence a
       cleanText: '删除当前分支',
       commandText: '删除当前分支',
       removedFillers: [],
+      source: 'local-rules',
     },
     scope: 'group',
   });

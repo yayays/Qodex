@@ -1,10 +1,15 @@
-import type { VoiceTranscript } from './types.js';
+import type { QQBotVoiceConfig, VoiceTranscript } from './types.js';
 
 export interface VoiceNormalizationResult {
   originalText: string;
   cleanText: string;
   commandText: string;
   removedFillers: string[];
+  riskFlags?: string[];
+  notes?: string[];
+  provider?: string;
+  model?: string;
+  source?: 'local-rules' | 'remote-api';
 }
 
 const FILLER_PATTERNS = [
@@ -100,7 +105,122 @@ export function normalizeVoiceTranscript(transcript: VoiceTranscript): VoiceNorm
     cleanText: working,
     commandText: working,
     removedFillers,
+    source: 'local-rules',
   };
+}
+
+interface VoiceApiNormalizeResponse {
+  original_text?: string;
+  clean_text?: string;
+  command_text?: string;
+  risk_flags?: string[];
+  notes?: string[];
+  provider?: string;
+  model?: string;
+}
+
+export async function normalizeVoiceTranscriptWithConfig(args: {
+  transcript: VoiceTranscript;
+  config: QQBotVoiceConfig;
+  fetchImpl?: typeof fetch;
+  log?: {
+    info?: (message: string) => void;
+    warn?: (message: string) => void;
+  };
+}): Promise<VoiceNormalizationResult> {
+  const fallback = normalizeVoiceTranscript(args.transcript);
+  const normalizeConfig = args.config.normalize;
+  if (!normalizeConfig.enabled) {
+    args.log?.info?.('voice normalize disabled, using local rules');
+    return fallback;
+  }
+
+  if (!normalizeConfig.apiBaseUrl) {
+    args.log?.info?.('voice normalize apiBaseUrl not configured, using local rules');
+    return fallback;
+  }
+
+  try {
+    const fetchImpl = args.fetchImpl ?? fetch;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (normalizeConfig.apiKeyEnv) {
+      const apiKey = process.env[normalizeConfig.apiKeyEnv];
+      if (apiKey) {
+        headers.Authorization = `Bearer ${apiKey}`;
+      }
+    }
+
+    const response = await fetchImpl(normalizeConfig.apiBaseUrl, {
+      method: 'POST',
+      signal: AbortSignal.timeout(normalizeConfig.timeoutMs),
+      headers,
+      body: JSON.stringify({
+        text: args.transcript.text,
+        mode: 'command',
+        language: args.transcript.language ?? args.config.stt.language ?? 'zh',
+        strip_fillers: normalizeConfig.stripFillers,
+        preserve_explicit_slash_commands: normalizeConfig.preserveExplicitSlashCommands,
+        model: normalizeConfig.model,
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = await readErrorDetail(response);
+      args.log?.warn?.(
+        `voice normalize via voiceApi failed status=${response.status} status_text="${response.statusText}" detail="${detail ?? 'n/a'}"; falling back to local rules`,
+      );
+      return fallback;
+    }
+
+    const payload = (await response.json()) as VoiceApiNormalizeResponse;
+    const cleanText = payload.clean_text?.trim();
+    const commandText = payload.command_text?.trim();
+    if (!cleanText || !commandText) {
+      args.log?.warn?.(
+        'voice normalize via voiceApi returned incomplete payload, falling back to local rules',
+      );
+      return fallback;
+    }
+
+    return {
+      originalText: payload.original_text?.trim() || fallback.originalText,
+      cleanText,
+      commandText,
+      removedFillers: fallback.removedFillers,
+      riskFlags: Array.isArray(payload.risk_flags) ? payload.risk_flags : undefined,
+      notes: Array.isArray(payload.notes) ? payload.notes : undefined,
+      provider: payload.provider,
+      model: payload.model,
+      source: 'remote-api',
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    args.log?.warn?.(
+      `voice normalize request to voiceApi failed: ${message}; falling back to local rules`,
+    );
+    return fallback;
+  }
+}
+
+async function readErrorDetail(response: Response): Promise<string | undefined> {
+  try {
+    const cloned = response.clone();
+    const contentType = cloned.headers.get('content-type') ?? '';
+    if (contentType.includes('application/json')) {
+      const payload = await cloned.json() as { detail?: unknown };
+      if (typeof payload.detail === 'string' && payload.detail.trim()) {
+        return payload.detail.trim();
+      }
+      return JSON.stringify(payload);
+    }
+
+    const text = (await cloned.text()).trim();
+    return text || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function escapeRegExp(value: string): string {

@@ -117,6 +117,14 @@ plugin = "builtin:console"
 #
 # [channels.qq.config.voice.normalize]
 # enabled = true
+# # Optional remote normalize endpoint. If omitted, Qodex falls back to local deterministic rules.
+# # For /Users/zain/Development/ai-ml/voiceApi use: http://127.0.0.1:8865/v1/normalize
+# api_base_url = "http://127.0.0.1:8865/v1/normalize"
+# # Optional environment variable name for Bearer auth.
+# api_key_env = "QODEX_NORMALIZE_API_KEY"
+# timeout_ms = 15000
+# # Optional model override forwarded to the normalize service.
+# model = "qwen2.5-7b-instruct"
 # strip_fillers = true
 # # When false, normalized slash commands such as "/approve" always require confirmation.
 # preserve_explicit_slash_commands = false

@@ -11,6 +11,9 @@ export interface QQBotVoiceNormalizeConfig {
   enabled: boolean;
   provider?: string;
   model?: string;
+  apiBaseUrl?: string;
+  apiKeyEnv?: string;
+  timeoutMs: number;
   stripFillers: boolean;
   preserveExplicitSlashCommands: boolean;
 }

@@ -25,7 +25,7 @@ import {
   JsonRpcSuccess,
   SendMessageParams,
   SendMessageResponse,
-} from './protocol.js';
+} from './core-protocol.js';
 
 interface PendingRequest {
   resolve: (value: unknown) => void;

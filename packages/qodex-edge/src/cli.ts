@@ -7,7 +7,7 @@ import { consoleChannelExtension } from './channels/console.js';
 import { loadConfig } from './config.js';
 import { CoreClient } from './coreClient.js';
 import { createLogger } from './logger.js';
-import { ConversationRef } from './protocol.js';
+import { ConversationRef } from './core-protocol.js';
 import { ChannelScope } from './plugin-sdk.js';
 import { QodexEdgeRuntime } from './runtime.js';
 

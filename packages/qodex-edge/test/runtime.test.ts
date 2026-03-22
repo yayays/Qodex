@@ -4,7 +4,7 @@ import test from 'node:test';
 
 import type { QodexConfig } from '../src/config.js';
 import { createLogger } from '../src/logger.js';
-import type { OutboundSink, PlatformMessage } from '../src/protocol.js';
+import type { PlatformMessage, OutboundSink } from '../src/platform-protocol.js';
 import { QodexEdgeRuntime } from '../src/runtime.js';
 
 const RUNTIME_IDLE_TTL_MS = 60 * 60_000;

@@ -1,6 +1,6 @@
 import { ChannelEntryConfig, QodexConfig } from './config.js';
 import { QodexLogger } from './logger.js';
-import type { ConversationRef } from './protocol.js';
+import type { ConversationRef } from './core-protocol.js';
 
 export type ChannelScope = 'c2c' | 'group' | 'channel';
 export type ChannelMessageKind = 'system' | 'stream' | 'final' | 'approval' | 'error';

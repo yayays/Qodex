@@ -20,18 +20,23 @@ import {
   type PendingDeliveryRecord,
   type SendMessageParams,
   type SendMessageResponse,
-} from '../src/protocol.js';
+} from '../src/core-protocol.js';
 import { loadConfig } from '../src/config.js';
 import {
   BackendKinds,
   ConfigLoaderDefaults,
   type BackendKind,
 } from '../src/generated/config-contract.js';
+import { DtoContract } from '../src/generated/dto-contract.js';
 
 test('protocol constants match the shared RPC contract', () => {
   assert.equal(JSONRPC_VERSION, rpcContract.jsonrpcVersion);
   assert.deepEqual(CoreMethods, rpcContract.methods);
   assert.deepEqual(CoreEvents, rpcContract.events);
+});
+
+test('generated DTO artifacts match the shared DTO contract', () => {
+  assert.deepEqual(DtoContract, dtoContract);
 });
 
 test('generated config artifacts match the shared config contract', () => {
@@ -81,7 +86,7 @@ test('critical DTO field shapes match the shared DTO contract', () => {
     model: undefined,
     modelProvider: undefined,
   });
-  assert.deepEqual(sendMessageParamsKeys, dtoContract.sendMessageParams);
+  assert.deepEqual(sendMessageParamsKeys, DtoContract.sendMessageParams);
 
   const sendMessageResponseKeys = typedKeys<SendMessageResponse>({
     accepted: true,
@@ -89,7 +94,7 @@ test('critical DTO field shapes match the shared DTO contract', () => {
     threadId: '',
     turnId: '',
   });
-  assert.deepEqual(sendMessageResponseKeys, dtoContract.sendMessageResponse);
+  assert.deepEqual(sendMessageResponseKeys, DtoContract.sendMessageResponse);
 
   const approvalRequestedEventKeys = typedKeys<ApprovalRequestedEvent>({
     eventId: '',
@@ -103,7 +108,7 @@ test('critical DTO field shapes match the shared DTO contract', () => {
     availableDecisions: [],
     payloadJson: '',
   });
-  assert.deepEqual(approvalRequestedEventKeys, dtoContract.approvalRequestedEvent);
+  assert.deepEqual(approvalRequestedEventKeys, DtoContract.approvalRequestedEvent);
 
   const detailsResponseKeys = typedKeys<ConversationDetailsResponse>({
     conversation: undefined,
@@ -113,7 +118,7 @@ test('critical DTO field shapes match the shared DTO contract', () => {
     recentTurn: undefined,
     recentError: undefined,
   });
-  assert.deepEqual(detailsResponseKeys, dtoContract.conversationDetailsResponse);
+  assert.deepEqual(detailsResponseKeys, DtoContract.conversationDetailsResponse);
 
   const runtimeKeys = typedKeys<ConversationRunningRuntime>({
     threadId: '',
@@ -121,7 +126,7 @@ test('critical DTO field shapes match the shared DTO contract', () => {
     activeFlags: [],
     error: undefined,
   });
-  assert.deepEqual(runtimeKeys, dtoContract.conversationRunningRuntime);
+  assert.deepEqual(runtimeKeys, DtoContract.conversationRunningRuntime);
 
   const pendingDeliveryKeys = typedKeys<PendingDeliveryRecord>({
     eventId: '',
@@ -132,7 +137,7 @@ test('critical DTO field shapes match the shared DTO contract', () => {
     payloadJson: '',
     createdAt: '',
   });
-  assert.deepEqual(pendingDeliveryKeys, dtoContract.pendingDeliveryRecord);
+  assert.deepEqual(pendingDeliveryKeys, DtoContract.pendingDeliveryRecord);
 });
 
 test('shared config loader defaults match the config contract', async () => {

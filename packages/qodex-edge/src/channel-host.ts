@@ -1,12 +1,14 @@
 import { ChannelEntryConfig, QodexConfig } from './config.js';
 import { QodexLogger } from './logger.js';
 import {
-  CodexRequestOverrides,
   ConversationRef,
+} from './core-protocol.js';
+import {
+  CodexRequestOverrides,
   OutboundSink,
   PlatformMessage,
   StreamUpdateMessage,
-} from './protocol.js';
+} from './platform-protocol.js';
 import {
   ChannelInboundMessage,
   ChannelPlugin,

@@ -9,7 +9,7 @@ import {
   CoreEvents,
   PendingApprovalRecord,
   SenderRef,
-} from './protocol.js';
+} from './core-protocol.js';
 
 const PLUGIN_ID = 'qodex';
 const DEFAULT_CORE_URL = 'ws://127.0.0.1:7820/ws';

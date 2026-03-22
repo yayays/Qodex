@@ -9,11 +9,13 @@ import {
   ConversationErrorEvent,
   ConversationRef,
   CoreEvents,
-  OutboundSink,
   PendingDeliveryRecord,
+} from './core-protocol.js';
+import {
+  OutboundSink,
   PlatformMessage,
   StreamUpdateMessage,
-} from './protocol.js';
+} from './platform-protocol.js';
 import {
   parseApprovalIntent,
   renderApprovalRequest,

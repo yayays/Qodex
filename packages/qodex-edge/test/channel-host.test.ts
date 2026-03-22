@@ -233,6 +233,26 @@ test('rebuilds a sink from conversation platform mapping', async () => {
   await host.stop();
 });
 
+test('rejects plugin extensions that do not support the host api version', async () => {
+  const runtime = new RecordingRuntime();
+  const host = new QodexChannelHost(
+    runtime as any,
+    createLogger('fatal'),
+    buildConfig(),
+  );
+
+  await assert.rejects(
+    host.registerExtension({
+      id: 'test-incompatible',
+      name: 'Incompatible Plugin',
+      apiVersion: 2,
+      supportedApiVersions: [2],
+      register() {},
+    }),
+    /does not support Qodex plugin API v1/,
+  );
+});
+
 function buildConfig(): QodexConfig {
   return {
     server: {
@@ -295,6 +315,8 @@ function createTestExtension(plugin: ChannelPlugin): QodexPluginExtension {
   return {
     id: 'test-qqbot',
     name: 'Test QQ Bot',
+    apiVersion: 1,
+    supportedApiVersions: [1],
     register(api) {
       api.registerChannel({ plugin });
     },

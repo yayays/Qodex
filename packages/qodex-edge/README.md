@@ -11,6 +11,7 @@ It is designed to sit between:
 
 - `QodexChannelHost`
 - `QodexPluginExtension` / `ChannelPlugin` types in `plugin-sdk`
+- public plugin contract types in `plugin-contract`
 - `loadPluginExtension`
 - built-in `consoleChannelExtension`
 - compatibility exports such as `qodexOpenClawPlugin`
@@ -67,3 +68,90 @@ This currently gives a local path:
 ## Plugin direction
 
 The next intended package is a real QQ channel plugin, for example `qodex-channel-qqbot`, loaded by Qodex itself rather than by OpenClaw.
+
+## Plugin Contract
+
+Qodex now separates plugin-facing contract types from host-only adapter wiring:
+
+- public plugin contract: `src/plugin-contract.ts`
+- compatibility re-export: `src/plugin-sdk.ts`
+- host-only adapter layer: `src/plugin-host-adapter.ts`
+
+External plugins should treat `plugin-contract` / `plugin-sdk` as the stable public surface.
+They should not depend on `channel-host`, host internals, or runtime implementation details.
+
+## Plugin API Versioning
+
+Current plugin API version:
+
+- `QODEX_PLUGIN_API_VERSION = 1`
+
+Plugin extensions can declare:
+
+- `apiVersion`
+- `supportedApiVersions`
+- `capabilities`
+- `requiredCapabilities`
+
+Recommended pattern:
+
+```ts
+export const myPlugin: QodexPluginExtension = {
+  id: 'example-plugin',
+  name: 'Example Plugin',
+  apiVersion: 1,
+  supportedApiVersions: [1],
+  capabilities: [
+    'channel.register',
+    'channel.gateway',
+    'channel.outbound.text',
+  ],
+  requiredCapabilities: [
+    'runtime.dispatchInbound',
+  ],
+  register(api) {
+    // ...
+  },
+};
+```
+
+Compatibility rules:
+
+- if `supportedApiVersions` is omitted, Qodex treats the plugin as supporting its declared `apiVersion`
+- if both are omitted, Qodex treats the plugin as a v1 plugin for backward compatibility
+- if the host API version is not in `supportedApiVersions`, plugin registration is rejected
+- if the plugin declares `requiredCapabilities` that the host does not provide, plugin registration is rejected
+
+## Host Capabilities
+
+Current host capability set:
+
+- `channel.register`
+- `channel.gateway`
+- `channel.outbound.text`
+- `channel.outbound.stream`
+- `runtime.dispatchInbound`
+- `runtime.getChannelEntry`
+
+Guidance:
+
+- use `capabilities` to describe what your plugin implements or meaningfully uses
+- use `requiredCapabilities` only for capabilities that must exist for the plugin to function correctly
+- prefer the smallest required set so plugins remain compatible with more hosts
+
+## Stability Notes
+
+What is intended to be stable in v1:
+
+- channel registration contract
+- gateway lifecycle shape
+- inbound message shape
+- outbound text / stream sending interfaces
+- runtime dispatch and channel entry lookup capabilities
+
+What should still be treated as host-internal:
+
+- `QodexChannelHost` implementation details
+- sink reconstruction rules
+- runtime command handling internals
+- direct access to full host config/logger types beyond the projected plugin view

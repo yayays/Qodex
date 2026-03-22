@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { consoleChannelExtension } from './channels/console.js';
-import { QodexPluginExtension } from './plugin-sdk.js';
+import { QodexPluginExtension } from './plugin-contract.js';
 
 const builtins = new Map<string, QodexPluginExtension>([
   ['builtin:console', consoleChannelExtension],
@@ -40,6 +40,10 @@ function isPluginExtension(value: unknown): value is QodexPluginExtension {
     value !== null &&
     typeof (value as { id?: unknown }).id === 'string' &&
     typeof (value as { name?: unknown }).name === 'string' &&
+    ((value as { apiVersion?: unknown }).apiVersion === undefined
+      || typeof (value as { apiVersion?: unknown }).apiVersion === 'number') &&
+    ((value as { supportedApiVersions?: unknown }).supportedApiVersions === undefined
+      || Array.isArray((value as { supportedApiVersions?: unknown }).supportedApiVersions)) &&
     typeof (value as { register?: unknown }).register === 'function'
   );
 }

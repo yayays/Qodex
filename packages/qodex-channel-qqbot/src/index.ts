@@ -80,6 +80,15 @@ export const qodexQQBotPlugin: QodexPluginExtension = {
   name: 'Qodex QQ Bot Channel',
   description:
     'Standalone QQ channel for Qodex. Supports outbound text and inbound QQ message dispatch through the gateway.',
+  apiVersion: 1,
+  supportedApiVersions: [1],
+  capabilities: [
+    'channel.register',
+    'channel.gateway',
+    'channel.outbound.text',
+    'runtime.dispatchInbound',
+    'runtime.getChannelEntry',
+  ],
   configSchema: {
     ...emptyPluginConfigSchema(),
     ...qqbotPluginConfigSchema,

@@ -3,6 +3,10 @@ use std::time::{Duration, Instant};
 use serde_json::json;
 
 use super::{test_support::*, *};
+use super::backend_events::{
+    parse_backend_server_request, BackendNotification, ParsedBackendEvent, TurnSummary,
+    TurnCompletedNotification,
+};
 use crate::db::{REDACTED_APPROVAL_PAYLOAD_JSON, REDACTED_MESSAGE_CONTENT};
 
 #[tokio::test]
@@ -405,6 +409,106 @@ async fn command_approval_is_persisted_and_can_be_responded_to() {
         .expect("approval still exists");
     assert_eq!(stored.status, "submitted");
     assert_eq!(stored.payload_json, REDACTED_APPROVAL_PAYLOAD_JSON);
+}
+
+#[test]
+fn parse_command_approval_request_maps_raw_payload_into_internal_seed() {
+    let event = parse_backend_server_request(
+        crate::backend::BackendKind::Codex,
+        json!(7),
+        "item/commandExecution/requestApproval",
+        json!({
+            "threadId": "thread-test-1",
+            "turnId": "turn-test-1",
+            "itemId": "item-1",
+            "approvalId": "approval-1",
+            "reason": "Need shell access",
+            "command": "cargo test",
+            "availableDecisions": ["accept", "decline"]
+        }),
+    )
+    .expect("event parses");
+
+    match event {
+        ParsedBackendEvent::ServerRequest(
+            super::backend_events::BackendServerRequest::Approval(seed),
+        ) => {
+            assert_eq!(seed.request_id, json!(7));
+            assert_eq!(seed.approval.backend_kind, crate::backend::BackendKind::Codex);
+            assert_eq!(seed.approval.approval_id, "approval-1");
+            assert_eq!(seed.approval.thread_id, "thread-test-1");
+            assert_eq!(seed.approval.turn_id, "turn-test-1");
+            assert_eq!(seed.approval.item_id, "item-1");
+            assert_eq!(seed.approval.kind, "commandExecution");
+            assert_eq!(seed.approval.reason.as_deref(), Some("Need shell access"));
+            assert_eq!(seed.approval.summary, "cargo test");
+            assert_eq!(seed.approval.available_decisions, vec!["accept", "decline"]);
+        }
+        other => panic!("expected approval server request, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn project_turn_completed_typed_event_persists_message_and_broadcasts_delivery() {
+    let harness = create_harness(&["/tmp/qodex-workspace-a"]).await;
+    let mut events = harness.service.subscribe();
+
+    let send_response = harness
+        .service
+        .send_message(build_message(
+            "qqbot:group:projector-completed-demo",
+            "trigger completion projection",
+            None,
+        ))
+        .await
+        .expect("send succeeds");
+
+    harness.service.turn_buffers.lock().await.insert(
+        format!(
+            "{}:{}:{}",
+            harness.mock.backend_kind.as_str(),
+            send_response.thread_id,
+            send_response.turn_id
+        ),
+        TurnAccumulator {
+            text: "assistant final text".to_string(),
+            last_updated_at: Instant::now(),
+        },
+    );
+
+    harness
+        .service
+        .project_backend_event(ParsedBackendEvent::Notification {
+            backend_kind: harness.mock.backend_kind,
+            event: BackendNotification::TurnCompleted(TurnCompletedNotification {
+                thread_id: send_response.thread_id.clone(),
+                turn: TurnSummary {
+                    id: send_response.turn_id.clone(),
+                    status: "completed".to_string(),
+                },
+            }),
+        })
+        .await
+        .expect("typed event projects");
+
+    let event = events.recv().await.expect("completion event published");
+    match event {
+        EdgeEvent::ConversationCompleted(completed) => {
+            assert_eq!(completed.conversation_key, "qqbot:group:projector-completed-demo");
+            assert_eq!(completed.thread_id, send_response.thread_id);
+            assert_eq!(completed.turn_id, send_response.turn_id);
+            assert_eq!(completed.text, "assistant final text");
+        }
+        other => panic!("expected completed event, got {other:?}"),
+    }
+
+    let messages = harness
+        .service
+        .db
+        .list_message_log("qqbot:group:projector-completed-demo")
+        .await
+        .expect("messages load");
+    assert_eq!(messages.last().map(|entry| entry.role.as_str()), Some("assistant"));
 }
 
 #[tokio::test]

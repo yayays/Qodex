@@ -70,6 +70,14 @@ export const consoleChannelExtension: QodexPluginExtension = {
   id: 'qodex-console-channel',
   name: 'Qodex Console Channel',
   description: 'Built-in local channel for driving Qodex without a real IM gateway.',
+  apiVersion: 1,
+  supportedApiVersions: [1],
+  capabilities: [
+    'channel.register',
+    'channel.gateway',
+    'channel.outbound.text',
+    'channel.outbound.stream',
+  ],
   configSchema: emptyPluginConfigSchema(),
   register(api) {
     api.registerChannel({ plugin: consoleChannelPlugin });

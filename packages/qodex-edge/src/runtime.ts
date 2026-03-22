@@ -11,23 +11,14 @@ import {
   CoreEvents,
   PendingDeliveryRecord,
 } from './core-protocol.js';
-import {
-  OutboundSink,
-  PlatformMessage,
-  StreamUpdateMessage,
-} from './platform-protocol.js';
-import {
-  parseApprovalIntent,
-  renderApprovalRequest,
-} from './runtime/approvals.js';
-import { handleRuntimeCommand, resolveRuntimeApproval } from './runtime/commands.js';
+import { OutboundSink, PlatformMessage } from './platform-protocol.js';
+import { resolveRuntimeApproval } from './runtime/commands.js';
 import type { RuntimeChannelHealth } from './runtime/types.js';
-import {
-  isFailedTurnStatus,
-  parseRecoverablePayload,
-  resolveQuickReply,
-} from './runtime/utils.js';
+import { isFailedTurnStatus } from './runtime/utils.js';
 import { RuntimeSessionState } from './runtime/state.js';
+import { RuntimeEventPresenter } from './runtime/presenter.js';
+import { RuntimeDeliveryReplay } from './runtime/replay.js';
+import { RuntimeInboundHandler } from './runtime/inbound.js';
 
 export interface RuntimeHostBridge {
   resolveSinkForConversation(conversation: ConversationRef): OutboundSink | undefined;
@@ -39,16 +30,52 @@ export class QodexEdgeRuntime {
   private readonly logger: QodexLogger;
   private readonly config: QodexConfig;
   private readonly sessionState = new RuntimeSessionState();
+  private readonly presenter: RuntimeEventPresenter;
+  private readonly replay: RuntimeDeliveryReplay;
+  private inbound: RuntimeInboundHandler;
   private host?: RuntimeHostBridge;
 
   constructor(core: CoreClient, logger: QodexLogger, config: QodexConfig) {
     this.core = core;
     this.logger = logger;
     this.config = config;
+    this.presenter = new RuntimeEventPresenter({
+      core: this.core,
+      logger: this.logger,
+      config: this.config,
+      sessionState: this.sessionState,
+      resolveSink: (conversationKey) => this.resolveSink(conversationKey),
+      isFailedTurnStatus,
+    });
+    this.replay = new RuntimeDeliveryReplay({
+      logger: this.logger,
+      listPendingDeliveries: () => this.core.listPendingDeliveries(),
+      presenter: this.presenter,
+    });
+    this.inbound = new RuntimeInboundHandler({
+      core: this.core,
+      logger: this.logger,
+      config: this.config,
+      host: this.host,
+      sessionState: this.sessionState,
+      resolveBackendKind: (message) => this.resolveBackendKind(message),
+      resolveApproval: (conversationKey, approvalToken, decision, sink) =>
+        this.resolveApproval(conversationKey, approvalToken, decision, sink),
+    });
   }
 
   attachHost(host: RuntimeHostBridge): void {
     this.host = host;
+    this.inbound = new RuntimeInboundHandler({
+      core: this.core,
+      logger: this.logger,
+      config: this.config,
+      host: this.host,
+      sessionState: this.sessionState,
+      resolveBackendKind: (message) => this.resolveBackendKind(message),
+      resolveApproval: (conversationKey, approvalToken, decision, sink) =>
+        this.resolveApproval(conversationKey, approvalToken, decision, sink),
+    });
   }
 
   async start(): Promise<void> {
@@ -69,110 +96,11 @@ export class QodexEdgeRuntime {
   }
 
   async recoverPendingDeliveries(): Promise<void> {
-    const { pending } = await this.core.listPendingDeliveries();
-    if (pending.length === 0) {
-      return;
-    }
-
-    let recovered = 0;
-    for (const delivery of pending) {
-      try {
-        await this.replayPendingDelivery(delivery);
-        recovered += 1;
-      } catch (error) {
-        this.logger.warn({ delivery, error }, 'failed to replay pending delivery');
-      }
-    }
-
-    this.logger.info(
-      { pending: pending.length, recovered },
-      'processed recoverable qodex deliveries after startup',
-    );
+    await this.replay.recoverPendingDeliveries();
   }
 
   async handleIncoming(message: PlatformMessage, sink: OutboundSink): Promise<void> {
-    this.sessionState.rememberSink(message.conversation.conversationKey, sink);
-    this.sessionState.pruneIdleState();
-    const trimmed = message.text.trim();
-    const conversationKey = message.conversation.conversationKey;
-
-    try {
-      if (trimmed.startsWith('/')) {
-        await this.handleCommand(message, sink);
-        return;
-      }
-
-      const approvalIntent = parseApprovalIntent(trimmed);
-      if (approvalIntent) {
-        await this.resolveApproval(
-          conversationKey,
-          approvalIntent.approvalToken,
-          approvalIntent.decision,
-          sink,
-        );
-        return;
-      }
-
-      const quickReply = resolveQuickReply(trimmed);
-      if (quickReply) {
-        await sink.sendText({
-          conversationKey,
-          kind: 'system',
-          text: quickReply,
-        });
-        return;
-      }
-
-      const response = await this.core.sendMessage({
-        conversation: message.conversation,
-        sender: message.sender,
-        text: message.text,
-        images: message.images,
-        workspace: message.workspace,
-        backendKind: this.resolveBackendKind(message),
-        model: message.codex?.model,
-        modelProvider: message.codex?.modelProvider,
-      });
-      this.sessionState.registerActiveTurn(message.conversation.conversationKey, response.turnId);
-
-      if (sink.showAcceptedAck) {
-        await sink.sendText({
-          conversationKey,
-          kind: 'system',
-          text: `Qodex accepted message. thread=${response.threadId} turn=${response.turnId}`,
-        });
-      }
-    } catch (error) {
-      const messageText = error instanceof Error ? error.message : String(error);
-      this.logger.error(
-        {
-          conversationKey,
-          error,
-        },
-        'failed to handle inbound message',
-      );
-      await sink.sendText({
-        conversationKey,
-        kind: 'error',
-        text: `Qodex error: ${messageText}`,
-      });
-    }
-  }
-
-  private async handleCommand(message: PlatformMessage, sink: OutboundSink): Promise<void> {
-    await handleRuntimeCommand(
-      {
-        core: this.core,
-        config: this.config,
-        host: this.host,
-        sessionState: this.sessionState,
-        resolveBackendKind: (platformMessage) => this.resolveBackendKind(platformMessage),
-        resolveApproval: (conversationKey, approvalToken, decision, outboundSink) =>
-          this.resolveApproval(conversationKey, approvalToken, decision, outboundSink),
-      },
-      message,
-      sink,
-    );
+    await this.inbound.handleIncoming(message, sink);
   }
 
   private resolveBackendKind(message: PlatformMessage): QodexConfig['backend']['kind'] {
@@ -189,128 +117,23 @@ export class QodexEdgeRuntime {
   }
 
   private async handleDelta(event: ConversationDeltaEvent): Promise<void> {
-    this.sessionState.appendDelta(event.conversationKey, event.turnId, event.delta);
-    const sink = this.resolveSink(event.conversationKey);
-    if (!sink?.sendStreamUpdate) {
-      return;
-    }
-
-    const now = Date.now();
-    const current = this.sessionState.appendDelta(event.conversationKey, event.turnId, '');
-
-    if (now - current.lastFlushAt >= this.config.edge.streamFlushMs) {
-      const payload: StreamUpdateMessage = {
-        conversationKey: event.conversationKey,
-        kind: 'stream',
-        turnId: event.turnId,
-        text: current.text,
-      };
-      await sink.sendStreamUpdate(payload);
-      this.sessionState.markStreamFlushed(event.conversationKey, event.turnId, now);
-    }
-
-    this.sessionState.pruneIdleState();
+    await this.presenter.handleDelta(event);
   }
 
   private async handleCompleted(event: ConversationCompletedEvent): Promise<void> {
-    const failed = this.sessionState.clearTurn(event.conversationKey, event.turnId)
-      || isFailedTurnStatus(event.status);
-    if (failed) {
-      this.logger.warn(
-        {
-          conversationKey: event.conversationKey,
-          turnId: event.turnId,
-          status: event.status,
-        },
-        'suppressing final message for failed turn',
-      );
-      await this.ackDeliveryIfPresent(event.eventId);
-      this.sessionState.pruneIdleState();
-      return;
-    }
-
-    const sink = this.resolveSink(event.conversationKey);
-    if (!sink) {
-      this.sessionState.pruneIdleState();
-      return;
-    }
-
-    await sink.sendText({
-      conversationKey: event.conversationKey,
-      kind: 'final',
-      text: event.text || `[Qodex completed turn ${event.turnId} with empty text]`,
-    });
-    await this.ackDeliveryIfPresent(event.eventId);
-    this.sessionState.pruneIdleState();
+    await this.presenter.handleCompleted(event);
   }
 
   private async handleError(event: ConversationErrorEvent): Promise<void> {
-    if (!event.conversationKey) {
-      this.logger.error({ event }, 'core reported an unbound error');
-      return;
-    }
-
-    if (event.turnId) {
-      this.sessionState.markTurnFailed(event.conversationKey, event.turnId);
-    }
-
-    const sink = this.resolveSink(event.conversationKey);
-    if (!sink) {
-      this.sessionState.pruneIdleState();
-      return;
-    }
-
-    await sink.sendText({
-      conversationKey: event.conversationKey,
-      kind: 'error',
-      text: event.message,
-    });
-    await this.ackDeliveryIfPresent(event.eventId);
-    this.sessionState.pruneIdleState();
+    await this.presenter.handleError(event);
   }
 
   private async handleApproval(event: ApprovalRequestedEvent): Promise<void> {
-    const sink = this.resolveSink(event.conversationKey);
-    if (!sink) {
-      this.logger.warn({ event }, 'approval requested for conversation without sink');
-      return;
-    }
-
-    await sink.sendText({
-      conversationKey: event.conversationKey,
-      kind: 'approval',
-      text: renderApprovalRequest(event),
-    });
-    await this.ackDeliveryIfPresent(event.eventId);
-    this.sessionState.pruneIdleState();
+    await this.presenter.handleApproval(event);
   }
 
   private async replayPendingDelivery(delivery: PendingDeliveryRecord): Promise<void> {
-    switch (delivery.method) {
-      case CoreEvents.completed:
-        await this.handleCompleted(parseRecoverablePayload<ConversationCompletedEvent>(delivery));
-        return;
-      case CoreEvents.error:
-        await this.handleError(parseRecoverablePayload<ConversationErrorEvent>(delivery));
-        return;
-      case CoreEvents.approvalRequested:
-        await this.handleApproval(parseRecoverablePayload<ApprovalRequestedEvent>(delivery));
-        return;
-      default:
-        this.logger.warn({ delivery }, 'ignoring unknown recoverable delivery method');
-    }
-  }
-
-  private async ackDeliveryIfPresent(eventId: string | null | undefined): Promise<void> {
-    if (!eventId) {
-      return;
-    }
-
-    try {
-      await this.core.ackDelivery({ eventId });
-    } catch (error) {
-      this.logger.warn({ eventId, error }, 'failed to acknowledge recoverable delivery');
-    }
+    await this.replay.replayPendingDelivery(delivery);
   }
 
   private resolveSink(conversationKey: string): OutboundSink | undefined {

@@ -14,13 +14,17 @@ import {
   ChannelPlugin,
   ChannelRuntimeStatus,
   ChannelSendTextParams,
-  QodexHostRuntime,
-  QodexPluginApi,
   QodexPluginExtension,
   buildChannelAddress,
-} from './plugin-sdk.js';
+} from './plugin-contract.js';
 import { QodexEdgeRuntime } from './runtime.js';
 import { loadPluginExtension } from './plugin-loader.js';
+import {
+  createHostGatewayContext,
+  createHostPluginApi,
+  createHostRuntimeBridge,
+  validatePluginExtensionCompatibility,
+} from './plugin-host-adapter.js';
 
 interface ActiveChannelInstance {
   entry: ChannelEntryConfig;
@@ -33,35 +37,41 @@ export class QodexChannelHost {
   private readonly registeredChannels = new Map<string, ChannelPlugin>();
   private readonly extensionChannels = new Map<string, string[]>();
   private readonly activeInstances = new Map<string, ActiveChannelInstance>();
-  private readonly runtimeApi: QodexHostRuntime;
-  private readonly pluginApi: QodexPluginApi;
+  private readonly runtimeApi;
+  private readonly pluginApi;
 
   constructor(
     private readonly runtime: QodexEdgeRuntime,
     private readonly logger: QodexLogger,
     private readonly config: QodexConfig,
   ) {
-    this.runtimeApi = {
+    this.runtimeApi = createHostRuntimeBridge({
       logger: this.logger,
       config: this.config,
       dispatchInbound: async (message) => {
         await this.dispatchInbound(message);
       },
       getChannelEntry: (channelId) => this.getChannelEntry(channelId),
-    };
+    });
 
-    this.pluginApi = {
-      runtime: this.runtimeApi,
-      registerChannel: ({ plugin }) => {
+    this.pluginApi = createHostPluginApi({
+      logger: this.logger,
+      config: this.config,
+      dispatchInbound: async (message) => {
+        await this.dispatchInbound(message);
+      },
+      getChannelEntry: (channelId) => this.getChannelEntry(channelId),
+      registerChannel: (plugin) => {
         this.registerChannel(plugin);
       },
-    };
+    });
   }
 
   async registerExtension(
     extension: QodexPluginExtension,
     source = extension.id,
   ): Promise<void> {
+    validatePluginExtensionCompatibility(extension);
     const before = new Set(this.registeredChannels.keys());
     await extension.register(this.pluginApi);
     const newChannelIds = [...this.registeredChannels.keys()].filter((id) => !before.has(id));
@@ -376,16 +386,11 @@ export class QodexChannelHost {
   }
 
   private createGatewayContext(instance: ActiveChannelInstance) {
-    return {
-      account: {
-        instanceId: instance.entry.instanceId,
-        accountId: instance.entry.accountId,
-        configDir: instance.entry.configDir,
-        config: instance.entry.config,
-      },
+    return createHostGatewayContext({
+      entry: instance.entry,
       abortSignal: instance.abortController.signal,
-      cfg: this.config,
-      log: this.logger.child({
+      config: this.config,
+      logger: this.logger.child({
         channel: instance.plugin.id,
         instanceId: instance.entry.instanceId,
       }),
@@ -394,7 +399,7 @@ export class QodexChannelHost {
       setStatus: (status: ChannelRuntimeStatus) => {
         instance.status = status;
       },
-    };
+    });
   }
 }
 

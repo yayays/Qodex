@@ -36,7 +36,9 @@ use crate::{
 };
 
 mod approvals;
+mod backend_events;
 mod deliveries;
+mod event_projector;
 mod events;
 mod helpers;
 mod housekeeping;

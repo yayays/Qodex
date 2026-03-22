@@ -40,13 +40,14 @@ Then fill them in as follows:
 - `plan.md`
   - scope
   - owners
+  - current slice
   - serialized hotspot files
   - acceptance criteria
   - validation plan
 - `progress.md`
   - chronological work log
-  - decisions made
-  - blockers and handoffs
+  - actual validation run
+  - blockers, risks, and handoffs
 - `findings.md`
   - review findings
   - risks
@@ -60,8 +61,11 @@ Then fill them in as follows:
 - Keep findings factual; label assumptions clearly.
 - If a task changes protocol or config shape, note it in `plan.md` before parallel implementation starts.
 - If multiple agents are active, record file ownership and serialized hotspot files in `plan.md`.
+- For multi-round work, keep one bounded slice active at a time and record its validation result in `progress.md`.
+- Use stable filenames only; do not create ad hoc variants such as `progress-v2.md` or extra root-level scratch state.
 
 See also:
 
 - `docs/ai-collaboration.md`
 - `docs/ai-prompts.md`
+- `docs/execution-practices.md`

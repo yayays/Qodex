@@ -8,6 +8,11 @@
 
 -
 
+## Current Slice
+
+- Active slice:
+- Why this slice is bounded:
+
 ## Owners
 
 - Integrator:
@@ -38,11 +43,19 @@
 
 - 
 
+## Open Questions
+
+- 
+
 ## Definition of Done
 
 - 
 
 ## Validation Plan
+
+- 
+
+## Review Focus
 
 - 
 

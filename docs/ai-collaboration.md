@@ -129,6 +129,44 @@ Defaults to read-only review work.
 
 Prefer file ownership over "smartest model wins."
 
+## Execution State
+
+For short tasks, chat plus code diff is often enough.
+
+For longer-running or parallel work, prefer a task-scoped workspace under `docs/tasks/<task-id>/`.
+
+Use it to keep:
+
+- current scope and ownership in `plan.md`
+- chronological progress, validation, blockers, and handoff in `progress.md`
+- review findings and residual risks in `findings.md`
+
+Do not move mutable task state into repository-wide rule files.
+
+## Round Discipline
+
+For multi-round work, each round should advance one bounded slice.
+
+That slice may span core and edge when the contract is tightly coupled, but it should still be narrow enough that:
+
+- changed files are understandable as one unit
+- matching validation is clear
+- handoff is specific
+
+If scope expands, update the task plan instead of silently broadening the round.
+
+## Validation And Handoff
+
+For longer-running or parallel work, each meaningful round should record:
+
+- round goal
+- actual file updates
+- validation run and result
+- blockers or residual risks
+- next-round entry point
+
+Do not mark work complete in task state if the matching validation is missing or blocked without explanation.
+
 ### Safe Parallel Zones
 
 These usually parallelize well once interfaces are frozen:

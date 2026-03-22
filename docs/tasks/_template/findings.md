@@ -7,10 +7,10 @@
 ## Findings
 
 - Severity: 
-  - File:
-  - Issue:
-  - Impact:
-  - Recommendation:
+- File:
+- Issue:
+- Impact:
+- Recommendation:
 
 ## Assumptions
 

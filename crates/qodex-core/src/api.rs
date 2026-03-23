@@ -21,7 +21,10 @@ use url::Url;
 use crate::{
     protocol::{
         methods, ApprovalRespondParams, BindWorkspaceParams, ConversationDetailsParams,
-        ConversationKeyParams, DeliveryAckParams, RpcError, RpcFailure, RpcNotification,
+        ConversationKeyParams, ConversationSummaryClearParams, ConversationSummaryGetParams,
+        ConversationSummaryUpsertParams, DeliveryAckParams, MemoryForgetParams, MemoryListParams,
+        MemoryProfileGetParams, MemoryProfileUpsertParams, MemoryRememberParams,
+        PromptHintAddParams, PromptHintRemoveParams, RpcError, RpcFailure, RpcNotification,
         RpcRequest, RpcSuccess, SendMessageParams, JSONRPC_VERSION,
     },
     service::AppService,
@@ -208,6 +211,106 @@ async fn dispatch_request(service: &AppService, text: &str) -> Option<String> {
                 .and_then(|params| async {
                     service
                         .running(params)
+                        .await
+                        .map(|v| serde_json::to_value(v).unwrap())
+                })
+                .await
+        }
+        methods::LIST_MEMORY => {
+            parse_params::<MemoryListParams>(&request.params)
+                .and_then(|params| async {
+                    service
+                        .list_memory_context(params)
+                        .await
+                        .map(|v| serde_json::to_value(v).unwrap())
+                })
+                .await
+        }
+        methods::REMEMBER_MEMORY => {
+            parse_params::<MemoryRememberParams>(&request.params)
+                .and_then(|params| async {
+                    service
+                        .remember_memory(params)
+                        .await
+                        .map(|v| serde_json::to_value(v).unwrap())
+                })
+                .await
+        }
+        methods::FORGET_MEMORY => {
+            parse_params::<MemoryForgetParams>(&request.params)
+                .and_then(|params| async {
+                    service
+                        .forget_memory(params)
+                        .await
+                        .map(|v| serde_json::to_value(v).unwrap())
+                })
+                .await
+        }
+        methods::GET_MEMORY_PROFILE => {
+            parse_params::<MemoryProfileGetParams>(&request.params)
+                .and_then(|params| async {
+                    service
+                        .get_memory_profile(params)
+                        .await
+                        .map(|v| serde_json::to_value(v).unwrap())
+                })
+                .await
+        }
+        methods::UPSERT_MEMORY_PROFILE => {
+            parse_params::<MemoryProfileUpsertParams>(&request.params)
+                .and_then(|params| async {
+                    service
+                        .upsert_memory_profile(params)
+                        .await
+                        .map(|v| serde_json::to_value(v).unwrap())
+                })
+                .await
+        }
+        methods::GET_CONVERSATION_SUMMARY => {
+            parse_params::<ConversationSummaryGetParams>(&request.params)
+                .and_then(|params| async {
+                    service
+                        .get_conversation_summary(params)
+                        .await
+                        .map(|v| serde_json::to_value(v).unwrap())
+                })
+                .await
+        }
+        methods::UPSERT_CONVERSATION_SUMMARY => {
+            parse_params::<ConversationSummaryUpsertParams>(&request.params)
+                .and_then(|params| async {
+                    service
+                        .upsert_conversation_summary(params)
+                        .await
+                        .map(|v| serde_json::to_value(v).unwrap())
+                })
+                .await
+        }
+        methods::CLEAR_CONVERSATION_SUMMARY => {
+            parse_params::<ConversationSummaryClearParams>(&request.params)
+                .and_then(|params| async {
+                    service
+                        .clear_conversation_summary(params)
+                        .await
+                        .map(|v| serde_json::to_value(v).unwrap())
+                })
+                .await
+        }
+        methods::ADD_PROMPT_HINT => {
+            parse_params::<PromptHintAddParams>(&request.params)
+                .and_then(|params| async {
+                    service
+                        .add_prompt_hint(params)
+                        .await
+                        .map(|v| serde_json::to_value(v).unwrap())
+                })
+                .await
+        }
+        methods::REMOVE_PROMPT_HINT => {
+            parse_params::<PromptHintRemoveParams>(&request.params)
+                .and_then(|params| async {
+                    service
+                        .remove_prompt_hint(params)
                         .await
                         .map(|v| serde_json::to_value(v).unwrap())
                 })

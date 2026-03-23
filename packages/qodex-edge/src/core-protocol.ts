@@ -94,6 +94,62 @@ export interface ConversationDetailsParams {
   messageLimit?: number;
 }
 
+export type MemoryScopeType = 'botInstance' | 'workspace' | 'user';
+
+export interface MemoryLocator {
+  conversationKey: string;
+  botInstance?: string;
+  workspace?: string;
+  userKey?: string;
+}
+
+export interface MemoryListParams extends MemoryLocator {
+  includeArchived?: boolean;
+}
+
+export interface MemoryRememberParams extends MemoryLocator {
+  scopeType: MemoryScopeType;
+  category: string;
+  content: string;
+  confidence?: number;
+  source?: string;
+}
+
+export interface MemoryForgetParams {
+  id: string;
+}
+
+export interface MemoryProfileGetParams extends MemoryLocator {
+  scopeType: MemoryScopeType;
+}
+
+export interface MemoryProfileUpsertParams extends MemoryLocator {
+  scopeType: MemoryScopeType;
+  profile: Record<string, unknown>;
+}
+
+export interface ConversationSummaryGetParams {
+  conversationKey: string;
+}
+
+export interface ConversationSummaryUpsertParams {
+  conversationKey: string;
+  summaryText: string;
+}
+
+export interface ConversationSummaryClearParams {
+  conversationKey: string;
+}
+
+export interface PromptHintAddParams extends MemoryLocator {
+  scopeType: MemoryScopeType;
+  hintText: string;
+}
+
+export interface PromptHintRemoveParams {
+  id: string;
+}
+
 export type ApprovalDecision =
   | 'accept'
   | 'acceptForSession'
@@ -187,6 +243,94 @@ export interface ConversationRunningRuntime {
 export interface ConversationRunningResponse {
   conversation?: ConversationRecord | null;
   runtime?: ConversationRunningRuntime | null;
+}
+
+export interface MemoryLinkRecord {
+  conversationKey: string;
+  botInstance?: string | null;
+  workspace?: string | null;
+  userKey?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemoryProfileRecord {
+  scopeType: MemoryScopeType;
+  scopeKey: string;
+  profileJson: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemoryFactRecord {
+  id: string;
+  scopeType: MemoryScopeType;
+  scopeKey: string;
+  category: string;
+  content: string;
+  confidence: number;
+  source: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversationSummaryRecord {
+  conversationKey: string;
+  summaryText: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PromptHintRecord {
+  id: string;
+  scopeType: MemoryScopeType;
+  scopeKey: string;
+  hintText: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemoryContextResponse {
+  link?: MemoryLinkRecord | null;
+  conversationSummary?: ConversationSummaryRecord | null;
+  profiles: MemoryProfileRecord[];
+  promptHints: PromptHintRecord[];
+  facts: MemoryFactRecord[];
+}
+
+export interface MemoryRememberResponse {
+  fact: MemoryFactRecord;
+}
+
+export interface MemoryForgetResponse {
+  id: string;
+  archived: boolean;
+}
+
+export interface MemoryProfileResponse {
+  profile?: MemoryProfileRecord | null;
+}
+
+export interface ConversationSummaryResponse {
+  summary?: ConversationSummaryRecord | null;
+}
+
+export interface ConversationSummaryClearResponse {
+  conversationKey: string;
+  cleared: boolean;
+}
+
+export interface PromptHintAddResponse {
+  hint: PromptHintRecord;
+}
+
+export interface PromptHintRemoveResponse {
+  id: string;
+  archived: boolean;
 }
 
 export interface ConversationDeltaEvent {

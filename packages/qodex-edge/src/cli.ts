@@ -71,7 +71,7 @@ async function main(): Promise<void> {
     'Qodex demo CLI ready',
   );
   output.write(
-    'Commands: /help, /bind /path, /new, /status, /status+, /running, /approve <id>, /reject <id>\n',
+    'Commands: /help, /bind /path, /new, /status, /status+, /running, /memory, /remember <scope> <category> <content>, /forget <id>, /profile [scope] [path=value|path+=value|path-=value|!path], /summary [text|clear], /hint <scope> <text>, /unhint <id>, /approve <id>, /reject <id>\n',
   );
   output.write('Type a normal message to send it to the configured backend. Ctrl+C to exit.\n\n');
 

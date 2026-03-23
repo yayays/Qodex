@@ -50,6 +50,62 @@ mod tests {
             Some(methods::RUNNING)
         );
         assert_eq!(
+            methods_contract.get("listMemory").and_then(Value::as_str),
+            Some(methods::LIST_MEMORY)
+        );
+        assert_eq!(
+            methods_contract
+                .get("rememberMemory")
+                .and_then(Value::as_str),
+            Some(methods::REMEMBER_MEMORY)
+        );
+        assert_eq!(
+            methods_contract.get("forgetMemory").and_then(Value::as_str),
+            Some(methods::FORGET_MEMORY)
+        );
+        assert_eq!(
+            methods_contract
+                .get("getMemoryProfile")
+                .and_then(Value::as_str),
+            Some(methods::GET_MEMORY_PROFILE)
+        );
+        assert_eq!(
+            methods_contract
+                .get("upsertMemoryProfile")
+                .and_then(Value::as_str),
+            Some(methods::UPSERT_MEMORY_PROFILE)
+        );
+        assert_eq!(
+            methods_contract
+                .get("getConversationSummary")
+                .and_then(Value::as_str),
+            Some(methods::GET_CONVERSATION_SUMMARY)
+        );
+        assert_eq!(
+            methods_contract
+                .get("upsertConversationSummary")
+                .and_then(Value::as_str),
+            Some(methods::UPSERT_CONVERSATION_SUMMARY)
+        );
+        assert_eq!(
+            methods_contract
+                .get("clearConversationSummary")
+                .and_then(Value::as_str),
+            Some(methods::CLEAR_CONVERSATION_SUMMARY)
+        );
+        assert_eq!(
+            methods_contract
+                .get("addPromptHint")
+                .and_then(Value::as_str),
+            Some(methods::ADD_PROMPT_HINT)
+        );
+        assert_eq!(
+            methods_contract
+                .get("removePromptHint")
+                .and_then(Value::as_str),
+            Some(methods::REMOVE_PROMPT_HINT)
+        );
+        assert_eq!(
             methods_contract
                 .get("respondApproval")
                 .and_then(Value::as_str),

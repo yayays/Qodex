@@ -3,7 +3,9 @@ use serde_json::Value;
 
 use crate::backend::BackendKind;
 use crate::db::{
-    ConversationRecord, MessageLogRecord, PendingApprovalRecord, PendingDeliveryRecord,
+    ConversationRecord, ConversationSummaryRecord, MemoryFactRecord, MemoryLinkRecord,
+    MemoryProfileRecord, MemoryScopeType, MessageLogRecord, PendingApprovalRecord,
+    PendingDeliveryRecord, PromptHintRecord,
 };
 
 pub const JSONRPC_VERSION: &str = "2.0";
@@ -15,6 +17,16 @@ pub mod methods {
     pub const STATUS: &str = "conversation/status";
     pub const DETAILS: &str = "conversation/details";
     pub const RUNNING: &str = "conversation/running";
+    pub const LIST_MEMORY: &str = "memory/list";
+    pub const REMEMBER_MEMORY: &str = "memory/remember";
+    pub const FORGET_MEMORY: &str = "memory/forget";
+    pub const GET_MEMORY_PROFILE: &str = "memory/profileGet";
+    pub const UPSERT_MEMORY_PROFILE: &str = "memory/profileUpsert";
+    pub const GET_CONVERSATION_SUMMARY: &str = "memory/conversationSummaryGet";
+    pub const UPSERT_CONVERSATION_SUMMARY: &str = "memory/conversationSummaryUpsert";
+    pub const CLEAR_CONVERSATION_SUMMARY: &str = "memory/conversationSummaryClear";
+    pub const ADD_PROMPT_HINT: &str = "memory/promptHintAdd";
+    pub const REMOVE_PROMPT_HINT: &str = "memory/promptHintRemove";
     pub const RESPOND_APPROVAL: &str = "approval/respond";
     pub const LIST_PENDING_DELIVERIES: &str = "delivery/listPending";
     pub const ACK_DELIVERY: &str = "delivery/ack";
@@ -150,6 +162,92 @@ pub struct ConversationDetailsParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MemoryLocator {
+    pub conversation_key: String,
+    pub bot_instance: Option<String>,
+    pub workspace: Option<String>,
+    pub user_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryListParams {
+    #[serde(flatten)]
+    pub locator: MemoryLocator,
+    pub include_archived: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryRememberParams {
+    #[serde(flatten)]
+    pub locator: MemoryLocator,
+    pub scope_type: MemoryScopeType,
+    pub category: String,
+    pub content: String,
+    pub confidence: Option<f64>,
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryForgetParams {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryProfileGetParams {
+    #[serde(flatten)]
+    pub locator: MemoryLocator,
+    pub scope_type: MemoryScopeType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryProfileUpsertParams {
+    #[serde(flatten)]
+    pub locator: MemoryLocator,
+    pub scope_type: MemoryScopeType,
+    pub profile: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationSummaryGetParams {
+    pub conversation_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationSummaryUpsertParams {
+    pub conversation_key: String,
+    pub summary_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationSummaryClearParams {
+    pub conversation_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptHintAddParams {
+    #[serde(flatten)]
+    pub locator: MemoryLocator,
+    pub scope_type: MemoryScopeType,
+    pub hint_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptHintRemoveParams {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApprovalRespondParams {
     pub approval_id: String,
     pub decision: ApprovalDecision,
@@ -225,6 +323,61 @@ pub struct ConversationRunningRuntime {
 pub struct ConversationRunningResponse {
     pub conversation: Option<ConversationRecord>,
     pub runtime: Option<ConversationRunningRuntime>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryContextResponse {
+    pub link: Option<MemoryLinkRecord>,
+    pub conversation_summary: Option<ConversationSummaryRecord>,
+    pub profiles: Vec<MemoryProfileRecord>,
+    pub prompt_hints: Vec<PromptHintRecord>,
+    pub facts: Vec<MemoryFactRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryRememberResponse {
+    pub fact: MemoryFactRecord,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryForgetResponse {
+    pub id: String,
+    pub archived: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryProfileResponse {
+    pub profile: Option<MemoryProfileRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationSummaryResponse {
+    pub summary: Option<ConversationSummaryRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationSummaryClearResponse {
+    pub conversation_key: String,
+    pub cleared: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptHintAddResponse {
+    pub hint: PromptHintRecord,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptHintRemoveResponse {
+    pub id: String,
+    pub archived: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -6,6 +6,11 @@ import {
   ApprovalResponse,
   ApprovalRequestedEvent,
   BindWorkspaceParams,
+  ConversationSummaryClearParams,
+  ConversationSummaryClearResponse,
+  ConversationSummaryGetParams,
+  ConversationSummaryResponse,
+  ConversationSummaryUpsertParams,
   ConversationCompletedEvent,
   ConversationDeltaEvent,
   ConversationDetailsParams,
@@ -23,6 +28,19 @@ import {
   JsonRpcFailure,
   JsonRpcNotification,
   JsonRpcSuccess,
+  MemoryContextResponse,
+  MemoryForgetParams,
+  MemoryForgetResponse,
+  MemoryListParams,
+  MemoryProfileGetParams,
+  MemoryProfileResponse,
+  MemoryProfileUpsertParams,
+  MemoryRememberParams,
+  MemoryRememberResponse,
+  PromptHintAddParams,
+  PromptHintAddResponse,
+  PromptHintRemoveParams,
+  PromptHintRemoveResponse,
   SendMessageParams,
   SendMessageResponse,
 } from './core-protocol.js';
@@ -143,6 +161,58 @@ export class CoreClient extends EventEmitter {
 
   async running(params: ConversationKeyParams): Promise<ConversationRunningResponse> {
     return this.request<ConversationRunningResponse>(CoreMethods.running, params);
+  }
+
+  async listMemory(params: MemoryListParams): Promise<MemoryContextResponse> {
+    return this.request<MemoryContextResponse>(CoreMethods.listMemory, params);
+  }
+
+  async rememberMemory(params: MemoryRememberParams): Promise<MemoryRememberResponse> {
+    return this.request<MemoryRememberResponse>(CoreMethods.rememberMemory, params);
+  }
+
+  async forgetMemory(params: MemoryForgetParams): Promise<MemoryForgetResponse> {
+    return this.request<MemoryForgetResponse>(CoreMethods.forgetMemory, params);
+  }
+
+  async getMemoryProfile(params: MemoryProfileGetParams): Promise<MemoryProfileResponse> {
+    return this.request<MemoryProfileResponse>(CoreMethods.getMemoryProfile, params);
+  }
+
+  async upsertMemoryProfile(params: MemoryProfileUpsertParams): Promise<MemoryProfileResponse> {
+    return this.request<MemoryProfileResponse>(CoreMethods.upsertMemoryProfile, params);
+  }
+
+  async getConversationSummary(
+    params: ConversationSummaryGetParams,
+  ): Promise<ConversationSummaryResponse> {
+    return this.request<ConversationSummaryResponse>(CoreMethods.getConversationSummary, params);
+  }
+
+  async upsertConversationSummary(
+    params: ConversationSummaryUpsertParams,
+  ): Promise<ConversationSummaryResponse> {
+    return this.request<ConversationSummaryResponse>(
+      CoreMethods.upsertConversationSummary,
+      params,
+    );
+  }
+
+  async clearConversationSummary(
+    params: ConversationSummaryClearParams,
+  ): Promise<ConversationSummaryClearResponse> {
+    return this.request<ConversationSummaryClearResponse>(
+      CoreMethods.clearConversationSummary,
+      params,
+    );
+  }
+
+  async addPromptHint(params: PromptHintAddParams): Promise<PromptHintAddResponse> {
+    return this.request<PromptHintAddResponse>(CoreMethods.addPromptHint, params);
+  }
+
+  async removePromptHint(params: PromptHintRemoveParams): Promise<PromptHintRemoveResponse> {
+    return this.request<PromptHintRemoveResponse>(CoreMethods.removePromptHint, params);
   }
 
   async listPendingDeliveries(): Promise<DeliveryListPendingResponse> {

@@ -71,6 +71,83 @@ pub struct PendingApprovalRecord {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MemoryScopeType {
+    BotInstance,
+    Workspace,
+    User,
+}
+
+impl MemoryScopeType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::BotInstance => "botInstance",
+            Self::Workspace => "workspace",
+            Self::User => "user",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryProfileRecord {
+    pub scope_type: MemoryScopeType,
+    pub scope_key: String,
+    pub profile_json: String,
+    pub version: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryFactRecord {
+    pub id: String,
+    pub scope_type: MemoryScopeType,
+    pub scope_key: String,
+    pub category: String,
+    pub content: String,
+    pub confidence: f64,
+    pub source: String,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationSummaryRecord {
+    pub conversation_key: String,
+    pub summary_text: String,
+    pub version: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptHintRecord {
+    pub id: String,
+    pub scope_type: MemoryScopeType,
+    pub scope_key: String,
+    pub hint_text: String,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryLinkRecord {
+    pub conversation_key: String,
+    pub bot_instance: Option<String>,
+    pub workspace: Option<String>,
+    pub user_key: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct NewConversation<'a> {
     pub conversation_key: &'a str,
@@ -104,6 +181,40 @@ pub struct NewPendingDelivery<'a> {
     pub thread_id: Option<&'a str>,
     pub turn_id: Option<&'a str>,
     pub payload_json: &'a str,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewMemoryFact<'a> {
+    pub id: &'a str,
+    pub scope_type: MemoryScopeType,
+    pub scope_key: &'a str,
+    pub category: &'a str,
+    pub content: &'a str,
+    pub confidence: f64,
+    pub source: &'a str,
+    pub status: &'a str,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewMemoryProfile<'a> {
+    pub scope_type: MemoryScopeType,
+    pub scope_key: &'a str,
+    pub profile_json: &'a str,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewConversationSummary<'a> {
+    pub conversation_key: &'a str,
+    pub summary_text: &'a str,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewPromptHint<'a> {
+    pub id: &'a str,
+    pub scope_type: MemoryScopeType,
+    pub scope_key: &'a str,
+    pub hint_text: &'a str,
+    pub status: &'a str,
 }
 
 impl Database {
@@ -220,6 +331,106 @@ impl Database {
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (conversation_key) REFERENCES conversations(conversation_key)
             )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS memory_profiles (
+                scope_type TEXT NOT NULL,
+                scope_key TEXT NOT NULL,
+                profile_json TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (scope_type, scope_key)
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS memory_facts (
+                id TEXT PRIMARY KEY,
+                scope_type TEXT NOT NULL,
+                scope_key TEXT NOT NULL,
+                category TEXT NOT NULL,
+                content TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS conversation_summaries (
+                conversation_key TEXT PRIMARY KEY,
+                summary_text TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (conversation_key) REFERENCES conversations(conversation_key)
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS prompt_hints (
+                id TEXT PRIMARY KEY,
+                scope_type TEXT NOT NULL,
+                scope_key TEXT NOT NULL,
+                hint_text TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS memory_links (
+                conversation_key TEXT PRIMARY KEY,
+                bot_instance TEXT,
+                workspace TEXT,
+                user_key TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (conversation_key) REFERENCES conversations(conversation_key)
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_prompt_hints_scope
+            ON prompt_hints (scope_type, scope_key, status, created_at)
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_memory_facts_scope
+            ON memory_facts (scope_type, scope_key, status, created_at)
             "#,
         )
         .execute(&self.pool)
@@ -458,6 +669,344 @@ impl Database {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn get_memory_link(
+        &self,
+        conversation_key: &str,
+    ) -> Result<Option<MemoryLinkRecord>> {
+        let row = sqlx::query(
+            r#"
+            SELECT conversation_key, bot_instance, workspace, user_key, created_at, updated_at
+            FROM memory_links
+            WHERE conversation_key = ?
+            "#,
+        )
+        .bind(conversation_key)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(map_memory_link))
+    }
+
+    pub async fn upsert_memory_link(
+        &self,
+        conversation_key: &str,
+        bot_instance: Option<&str>,
+        workspace: Option<&str>,
+        user_key: Option<&str>,
+    ) -> Result<MemoryLinkRecord> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            r#"
+            INSERT INTO memory_links (conversation_key, bot_instance, workspace, user_key, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(conversation_key)
+            DO UPDATE SET
+                bot_instance = COALESCE(excluded.bot_instance, memory_links.bot_instance),
+                workspace = COALESCE(excluded.workspace, memory_links.workspace),
+                user_key = COALESCE(excluded.user_key, memory_links.user_key),
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(conversation_key)
+        .bind(bot_instance)
+        .bind(workspace)
+        .bind(user_key)
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        self.get_memory_link(conversation_key)
+            .await?
+            .context("memory link was upserted but could not be read back")
+    }
+
+    pub async fn get_memory_profile(
+        &self,
+        scope_type: MemoryScopeType,
+        scope_key: &str,
+    ) -> Result<Option<MemoryProfileRecord>> {
+        let row = sqlx::query(
+            r#"
+            SELECT scope_type, scope_key, profile_json, version, created_at, updated_at
+            FROM memory_profiles
+            WHERE scope_type = ? AND scope_key = ?
+            "#,
+        )
+        .bind(scope_type.as_str())
+        .bind(scope_key)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(map_memory_profile))
+    }
+
+    pub async fn upsert_memory_profile(
+        &self,
+        profile: NewMemoryProfile<'_>,
+    ) -> Result<MemoryProfileRecord> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            r#"
+            INSERT INTO memory_profiles (scope_type, scope_key, profile_json, version, created_at, updated_at)
+            VALUES (?, ?, ?, 1, ?, ?)
+            ON CONFLICT(scope_type, scope_key)
+            DO UPDATE SET
+                profile_json = excluded.profile_json,
+                version = memory_profiles.version + 1,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(profile.scope_type.as_str())
+        .bind(profile.scope_key)
+        .bind(profile.profile_json)
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        self.get_memory_profile(profile.scope_type, profile.scope_key)
+            .await?
+            .context("memory profile was upserted but could not be read back")
+    }
+
+    pub async fn insert_memory_fact(&self, fact: NewMemoryFact<'_>) -> Result<MemoryFactRecord> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            r#"
+            INSERT INTO memory_facts (
+                id, scope_type, scope_key, category, content, confidence, source, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(fact.id)
+        .bind(fact.scope_type.as_str())
+        .bind(fact.scope_key)
+        .bind(fact.category)
+        .bind(fact.content)
+        .bind(fact.confidence)
+        .bind(fact.source)
+        .bind(fact.status)
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        self.get_memory_fact(fact.id)
+            .await?
+            .context("memory fact was inserted but could not be read back")
+    }
+
+    pub async fn get_memory_fact(&self, id: &str) -> Result<Option<MemoryFactRecord>> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, scope_type, scope_key, category, content, confidence, source, status, created_at, updated_at
+            FROM memory_facts
+            WHERE id = ?
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(map_memory_fact))
+    }
+
+    pub async fn get_conversation_summary(
+        &self,
+        conversation_key: &str,
+    ) -> Result<Option<ConversationSummaryRecord>> {
+        let row = sqlx::query(
+            r#"
+            SELECT conversation_key, summary_text, version, created_at, updated_at
+            FROM conversation_summaries
+            WHERE conversation_key = ?
+            "#,
+        )
+        .bind(conversation_key)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(map_conversation_summary))
+    }
+
+    pub async fn upsert_conversation_summary(
+        &self,
+        summary: NewConversationSummary<'_>,
+    ) -> Result<ConversationSummaryRecord> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            r#"
+            INSERT INTO conversation_summaries (conversation_key, summary_text, version, created_at, updated_at)
+            VALUES (?, ?, 1, ?, ?)
+            ON CONFLICT(conversation_key)
+            DO UPDATE SET
+                summary_text = excluded.summary_text,
+                version = conversation_summaries.version + 1,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(summary.conversation_key)
+        .bind(summary.summary_text)
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        self.get_conversation_summary(summary.conversation_key)
+            .await?
+            .context("conversation summary was upserted but could not be read back")
+    }
+
+    pub async fn clear_conversation_summary(&self, conversation_key: &str) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM conversation_summaries
+            WHERE conversation_key = ?
+            "#,
+        )
+        .bind(conversation_key)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn insert_prompt_hint(&self, hint: NewPromptHint<'_>) -> Result<PromptHintRecord> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            r#"
+            INSERT INTO prompt_hints (
+                id, scope_type, scope_key, hint_text, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(hint.id)
+        .bind(hint.scope_type.as_str())
+        .bind(hint.scope_key)
+        .bind(hint.hint_text)
+        .bind(hint.status)
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        self.get_prompt_hint(hint.id)
+            .await?
+            .context("prompt hint was inserted but could not be read back")
+    }
+
+    pub async fn get_prompt_hint(&self, id: &str) -> Result<Option<PromptHintRecord>> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, scope_type, scope_key, hint_text, status, created_at, updated_at
+            FROM prompt_hints
+            WHERE id = ?
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(map_prompt_hint))
+    }
+
+    pub async fn list_prompt_hints_for_scope(
+        &self,
+        scope_type: MemoryScopeType,
+        scope_key: &str,
+        include_archived: bool,
+    ) -> Result<Vec<PromptHintRecord>> {
+        let sql = if include_archived {
+            r#"
+            SELECT id, scope_type, scope_key, hint_text, status, created_at, updated_at
+            FROM prompt_hints
+            WHERE scope_type = ? AND scope_key = ? AND status != 'deleted'
+            ORDER BY created_at ASC
+            "#
+        } else {
+            r#"
+            SELECT id, scope_type, scope_key, hint_text, status, created_at, updated_at
+            FROM prompt_hints
+            WHERE scope_type = ? AND scope_key = ? AND status = 'active'
+            ORDER BY created_at ASC
+            "#
+        };
+
+        let rows = sqlx::query(sql)
+            .bind(scope_type.as_str())
+            .bind(scope_key)
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(rows.into_iter().map(map_prompt_hint).collect())
+    }
+
+    pub async fn archive_prompt_hint(&self, id: &str) -> Result<bool> {
+        let now = Utc::now().to_rfc3339();
+        let result = sqlx::query(
+            r#"
+            UPDATE prompt_hints
+            SET status = 'archived', updated_at = ?
+            WHERE id = ? AND status != 'archived'
+            "#,
+        )
+        .bind(now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn list_memory_facts_for_scope(
+        &self,
+        scope_type: MemoryScopeType,
+        scope_key: &str,
+        include_archived: bool,
+    ) -> Result<Vec<MemoryFactRecord>> {
+        let sql = if include_archived {
+            r#"
+            SELECT id, scope_type, scope_key, category, content, confidence, source, status, created_at, updated_at
+            FROM memory_facts
+            WHERE scope_type = ? AND scope_key = ? AND status != 'deleted'
+            ORDER BY created_at ASC
+            "#
+        } else {
+            r#"
+            SELECT id, scope_type, scope_key, category, content, confidence, source, status, created_at, updated_at
+            FROM memory_facts
+            WHERE scope_type = ? AND scope_key = ? AND status = 'active'
+            ORDER BY created_at ASC
+            "#
+        };
+
+        let rows = sqlx::query(sql)
+            .bind(scope_type.as_str())
+            .bind(scope_key)
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(rows.into_iter().map(map_memory_fact).collect())
+    }
+
+    pub async fn archive_memory_fact(&self, id: &str) -> Result<bool> {
+        let now = Utc::now().to_rfc3339();
+        let result = sqlx::query(
+            r#"
+            UPDATE memory_facts
+            SET status = 'archived', updated_at = ?
+            WHERE id = ? AND status != 'archived'
+            "#,
+        )
+        .bind(now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn log_message(
@@ -826,6 +1375,15 @@ fn parse_backend_kind(value: &str) -> Option<BackendKind> {
     }
 }
 
+fn parse_memory_scope_type(value: &str) -> Option<MemoryScopeType> {
+    match value {
+        "botInstance" => Some(MemoryScopeType::BotInstance),
+        "workspace" => Some(MemoryScopeType::Workspace),
+        "user" => Some(MemoryScopeType::User),
+        _ => None,
+    }
+}
+
 fn map_approval(row: sqlx::sqlite::SqliteRow) -> PendingApprovalRecord {
     PendingApprovalRecord {
         approval_id: row.get("approval_id"),
@@ -863,6 +1421,68 @@ fn map_pending_delivery(row: sqlx::sqlite::SqliteRow) -> PendingDeliveryRecord {
         turn_id: row.get("turn_id"),
         payload_json: row.get("payload_json"),
         created_at: row.get("created_at"),
+    }
+}
+
+fn map_memory_link(row: sqlx::sqlite::SqliteRow) -> MemoryLinkRecord {
+    MemoryLinkRecord {
+        conversation_key: row.get("conversation_key"),
+        bot_instance: row.get("bot_instance"),
+        workspace: row.get("workspace"),
+        user_key: row.get("user_key"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
+}
+
+fn map_memory_profile(row: sqlx::sqlite::SqliteRow) -> MemoryProfileRecord {
+    MemoryProfileRecord {
+        scope_type: parse_memory_scope_type(&row.get::<String, _>("scope_type"))
+            .expect("memory profile scope_type is valid"),
+        scope_key: row.get("scope_key"),
+        profile_json: row.get("profile_json"),
+        version: row.get("version"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
+}
+
+fn map_memory_fact(row: sqlx::sqlite::SqliteRow) -> MemoryFactRecord {
+    MemoryFactRecord {
+        id: row.get("id"),
+        scope_type: parse_memory_scope_type(&row.get::<String, _>("scope_type"))
+            .expect("memory fact scope_type is valid"),
+        scope_key: row.get("scope_key"),
+        category: row.get("category"),
+        content: row.get("content"),
+        confidence: row.get("confidence"),
+        source: row.get("source"),
+        status: row.get("status"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
+}
+
+fn map_conversation_summary(row: sqlx::sqlite::SqliteRow) -> ConversationSummaryRecord {
+    ConversationSummaryRecord {
+        conversation_key: row.get("conversation_key"),
+        summary_text: row.get("summary_text"),
+        version: row.get("version"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
+}
+
+fn map_prompt_hint(row: sqlx::sqlite::SqliteRow) -> PromptHintRecord {
+    PromptHintRecord {
+        id: row.get("id"),
+        scope_type: parse_memory_scope_type(&row.get::<String, _>("scope_type"))
+            .expect("prompt hint scope_type is valid"),
+        scope_key: row.get("scope_key"),
+        hint_text: row.get("hint_text"),
+        status: row.get("status"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
     }
 }
 

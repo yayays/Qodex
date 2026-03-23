@@ -21,17 +21,22 @@ use crate::{
     codex::CodexClient,
     config::Config,
     db::{
-        ConversationRecord, Database, MessageLogRecord, NewApproval, NewConversation,
-        NewPendingDelivery, PendingApprovalRecord, REDACTED_MESSAGE_CONTENT,
+        ConversationRecord, Database, MemoryScopeType, MessageLogRecord, NewApproval,
+        NewConversation, NewPendingDelivery, PendingApprovalRecord, REDACTED_MESSAGE_CONTENT,
     },
     protocol::{
         methods, ApprovalDecision, ApprovalRequestedEvent, ApprovalResponse, BindWorkspaceParams,
         ConversationCompletedEvent, ConversationDeltaEvent, ConversationDetailsParams,
         ConversationDetailsResponse, ConversationErrorEvent, ConversationKeyParams,
         ConversationRecentError, ConversationRecentTurn, ConversationRunningResponse,
-        ConversationRunningRuntime, ConversationStatusResponse, DeliveryAckParams,
-        DeliveryAckResponse, DeliveryListPendingResponse, EdgeEvent, ImageInput, SendMessageParams,
-        SendMessageResponse,
+        ConversationRunningRuntime, ConversationStatusResponse, ConversationSummaryClearParams,
+        ConversationSummaryClearResponse, ConversationSummaryGetParams,
+        ConversationSummaryResponse, ConversationSummaryUpsertParams, DeliveryAckParams,
+        DeliveryAckResponse, DeliveryListPendingResponse, EdgeEvent, ImageInput,
+        MemoryContextResponse, MemoryForgetParams, MemoryForgetResponse, MemoryListParams,
+        MemoryProfileGetParams, MemoryProfileResponse, MemoryProfileUpsertParams,
+        MemoryRememberParams, MemoryRememberResponse, PromptHintAddParams, PromptHintAddResponse,
+        PromptHintRemoveParams, PromptHintRemoveResponse, SendMessageParams, SendMessageResponse,
     },
 };
 
@@ -43,6 +48,7 @@ mod events;
 mod helpers;
 mod housekeeping;
 mod lifecycle;
+mod memory;
 mod runtime;
 #[cfg(test)]
 mod test_support;
@@ -50,6 +56,7 @@ mod test_support;
 mod tests;
 
 use self::helpers::*;
+use self::memory::build_user_memory_key;
 
 #[derive(Clone)]
 pub struct AppService {
@@ -198,6 +205,36 @@ impl AppService {
                 conversation = self.switch_workspace(&conversation, &workspace).await?;
             }
 
+            let user_key = build_user_memory_key(
+                &params.conversation.platform,
+                &params.conversation.scope,
+                &params.sender.sender_id,
+            );
+            let _ = self
+                .db
+                .upsert_memory_link(
+                    &conversation_key,
+                    Some(&params.conversation.platform),
+                    Some(&conversation.workspace),
+                    Some(&user_key),
+                )
+                .await?;
+            let persistent_context = self
+                .build_persistent_context(
+                    &conversation_key,
+                    Some(&params.conversation.platform),
+                    Some(&conversation.workspace),
+                    Some(&user_key),
+                )
+                .await?;
+            let effective_text = match persistent_context {
+                Some(context) if !params.text.trim().is_empty() => {
+                    format!("{context}\n\nUser request:\n{}", params.text)
+                }
+                Some(context) => context,
+                None => params.text.clone(),
+            };
+
             let (thread_id, turn): (String, TurnStartResponse) = self
                 .start_turn_with_recovery(
                     backend_kind,
@@ -206,7 +243,7 @@ impl AppService {
                     &conversation.workspace,
                     conversation.thread_id.as_deref(),
                     &backend_config,
-                    &params.text,
+                    &effective_text,
                     params.images.clone(),
                 )
                 .await?;

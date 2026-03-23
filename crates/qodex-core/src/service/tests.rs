@@ -2,12 +2,18 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use super::{test_support::*, *};
 use super::backend_events::{
-    parse_backend_server_request, BackendNotification, ParsedBackendEvent, TurnSummary,
-    TurnCompletedNotification,
+    parse_backend_server_request, BackendNotification, ParsedBackendEvent,
+    TurnCompletedNotification, TurnSummary,
 };
+use super::{test_support::*, *};
+use crate::db::MemoryScopeType;
 use crate::db::{REDACTED_APPROVAL_PAYLOAD_JSON, REDACTED_MESSAGE_CONTENT};
+use crate::protocol::{
+    ConversationSummaryClearParams, ConversationSummaryGetParams, ConversationSummaryUpsertParams,
+    MemoryForgetParams, MemoryListParams, MemoryLocator, MemoryProfileUpsertParams,
+    MemoryRememberParams, PromptHintAddParams, PromptHintRemoveParams,
+};
 
 #[tokio::test]
 async fn send_message_creates_thread_before_turn_and_persists_binding() {
@@ -269,6 +275,357 @@ async fn bind_workspace_allows_descendant_of_allowed_root() {
 }
 
 #[tokio::test]
+async fn memory_crud_round_trip_resolves_current_conversation_scopes() {
+    let harness = create_harness(&["/tmp/qodex-workspace-a"]).await;
+
+    harness
+        .service
+        .send_message(build_message("qqbot:group:memory-demo", "hello", None))
+        .await
+        .expect("initial send succeeds");
+
+    let remember = harness
+        .service
+        .remember_memory(MemoryRememberParams {
+            locator: MemoryLocator {
+                conversation_key: "qqbot:group:memory-demo".to_string(),
+                bot_instance: None,
+                workspace: None,
+                user_key: None,
+            },
+            scope_type: MemoryScopeType::User,
+            category: "preference".to_string(),
+            content: "默认用中文回复".to_string(),
+            confidence: None,
+            source: None,
+        })
+        .await
+        .expect("remember succeeds");
+
+    let profile = harness
+        .service
+        .upsert_memory_profile(MemoryProfileUpsertParams {
+            locator: MemoryLocator {
+                conversation_key: "qqbot:group:memory-demo".to_string(),
+                bot_instance: None,
+                workspace: None,
+                user_key: None,
+            },
+            scope_type: MemoryScopeType::BotInstance,
+            profile: json!({
+                "language": "zh-CN",
+                "style": "concise",
+            }),
+        })
+        .await
+        .expect("profile upsert succeeds");
+
+    let listed = harness
+        .service
+        .list_memory_context(MemoryListParams {
+            locator: MemoryLocator {
+                conversation_key: "qqbot:group:memory-demo".to_string(),
+                bot_instance: None,
+                workspace: None,
+                user_key: None,
+            },
+            include_archived: None,
+        })
+        .await
+        .expect("memory list succeeds");
+
+    assert_eq!(remember.fact.category, "preference");
+    assert_eq!(remember.fact.content, "默认用中文回复");
+    assert_eq!(
+        profile.profile.expect("profile exists").scope_type,
+        MemoryScopeType::BotInstance
+    );
+    assert_eq!(listed.profiles.len(), 1);
+    assert_eq!(listed.facts.len(), 1);
+    assert_eq!(
+        listed.link.expect("link exists").user_key.as_deref(),
+        Some("qqbot:group:tester")
+    );
+
+    let forget = harness
+        .service
+        .forget_memory(MemoryForgetParams {
+            id: remember.fact.id,
+        })
+        .await
+        .expect("forget succeeds");
+    assert!(forget.archived);
+
+    let listed = harness
+        .service
+        .list_memory_context(MemoryListParams {
+            locator: MemoryLocator {
+                conversation_key: "qqbot:group:memory-demo".to_string(),
+                bot_instance: None,
+                workspace: None,
+                user_key: None,
+            },
+            include_archived: None,
+        })
+        .await
+        .expect("memory list after forget succeeds");
+    assert!(listed.facts.is_empty());
+}
+
+#[tokio::test]
+async fn send_message_injects_persistent_context_before_user_request() {
+    let harness = create_harness(&["/tmp/qodex-workspace-a"]).await;
+
+    harness
+        .service
+        .send_message(build_message(
+            "qqbot:group:memory-inject-demo",
+            "first turn",
+            None,
+        ))
+        .await
+        .expect("initial send succeeds");
+
+    harness
+        .service
+        .remember_memory(MemoryRememberParams {
+            locator: MemoryLocator {
+                conversation_key: "qqbot:group:memory-inject-demo".to_string(),
+                bot_instance: None,
+                workspace: None,
+                user_key: None,
+            },
+            scope_type: MemoryScopeType::Workspace,
+            category: "repo_rule".to_string(),
+            content: "优先最小改动".to_string(),
+            confidence: None,
+            source: None,
+        })
+        .await
+        .expect("workspace memory saved");
+
+    harness.mock.start_turn_calls.lock().await.clear();
+
+    harness
+        .service
+        .send_message(build_message(
+            "qqbot:group:memory-inject-demo",
+            "请修改 README",
+            None,
+        ))
+        .await
+        .expect("second send succeeds");
+
+    let calls = harness.mock.start_turn_calls.lock().await.clone();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, "thread-test-1");
+    assert!(calls[0].1.contains("Persistent context:"));
+    assert!(calls[0]
+        .1
+        .contains("Workspace memory: [repo_rule] 优先最小改动"));
+    assert!(calls[0].1.contains("User request:\n请修改 README"));
+}
+
+#[tokio::test]
+async fn send_message_injects_summary_and_prompt_hints_before_user_request() {
+    let harness = create_harness(&["/tmp/qodex-workspace-a"]).await;
+
+    harness
+        .service
+        .send_message(build_message(
+            "qqbot:group:summary-hint-demo",
+            "first turn",
+            None,
+        ))
+        .await
+        .expect("first send succeeds");
+
+    harness
+        .service
+        .upsert_conversation_summary(ConversationSummaryUpsertParams {
+            conversation_key: "qqbot:group:summary-hint-demo".to_string(),
+            summary_text: "当前轮次已经确认 memory phase 2 范围".to_string(),
+        })
+        .await
+        .expect("summary saved");
+
+    harness
+        .service
+        .add_prompt_hint(PromptHintAddParams {
+            locator: MemoryLocator {
+                conversation_key: "qqbot:group:summary-hint-demo".to_string(),
+                bot_instance: None,
+                workspace: None,
+                user_key: None,
+            },
+            scope_type: MemoryScopeType::User,
+            hint_text: "回答时先给出最小落地方案".to_string(),
+        })
+        .await
+        .expect("prompt hint saved");
+
+    harness.mock.start_turn_calls.lock().await.clear();
+
+    harness
+        .service
+        .send_message(build_message(
+            "qqbot:group:summary-hint-demo",
+            "继续实现 phase 2",
+            None,
+        ))
+        .await
+        .expect("second send succeeds");
+
+    let calls = harness.mock.start_turn_calls.lock().await.clone();
+    assert_eq!(calls.len(), 1);
+    assert!(calls[0]
+        .1
+        .contains("Conversation summary: 当前轮次已经确认 memory phase 2 范围"));
+    assert!(calls[0]
+        .1
+        .contains("User prompt hint: 回答时先给出最小落地方案"));
+    assert!(calls[0].1.contains("User request:\n继续实现 phase 2"));
+}
+
+#[tokio::test]
+async fn memory_context_includes_summary_and_prompt_hints() {
+    let harness = create_harness(&["/tmp/qodex-workspace-a"]).await;
+
+    harness
+        .service
+        .send_message(build_message(
+            "qqbot:group:memory-context-demo",
+            "seed conversation",
+            None,
+        ))
+        .await
+        .expect("seed send succeeds");
+
+    harness
+        .service
+        .upsert_conversation_summary(ConversationSummaryUpsertParams {
+            conversation_key: "qqbot:group:memory-context-demo".to_string(),
+            summary_text: "已同步当前对话背景".to_string(),
+        })
+        .await
+        .expect("summary saved");
+
+    let added = harness
+        .service
+        .add_prompt_hint(PromptHintAddParams {
+            locator: MemoryLocator {
+                conversation_key: "qqbot:group:memory-context-demo".to_string(),
+                bot_instance: None,
+                workspace: None,
+                user_key: None,
+            },
+            scope_type: MemoryScopeType::Workspace,
+            hint_text: "优先保持 API 稳定".to_string(),
+        })
+        .await
+        .expect("hint saved");
+
+    let memory = harness
+        .service
+        .list_memory_context(MemoryListParams {
+            locator: MemoryLocator {
+                conversation_key: "qqbot:group:memory-context-demo".to_string(),
+                bot_instance: None,
+                workspace: None,
+                user_key: None,
+            },
+            include_archived: None,
+        })
+        .await
+        .expect("memory context loads");
+
+    assert_eq!(
+        memory
+            .conversation_summary
+            .as_ref()
+            .map(|summary| summary.summary_text.as_str()),
+        Some("已同步当前对话背景")
+    );
+    assert_eq!(memory.prompt_hints.len(), 1);
+    assert_eq!(memory.prompt_hints[0].id, added.hint.id);
+    assert_eq!(memory.prompt_hints[0].hint_text, "优先保持 API 稳定");
+}
+
+#[tokio::test]
+async fn summary_and_prompt_hint_crud_round_trip() {
+    let harness = create_harness(&["/tmp/qodex-workspace-a"]).await;
+
+    harness
+        .service
+        .send_message(build_message(
+            "qqbot:group:summary-crud-demo",
+            "seed conversation",
+            None,
+        ))
+        .await
+        .expect("seed send succeeds");
+
+    let summary = harness
+        .service
+        .upsert_conversation_summary(ConversationSummaryUpsertParams {
+            conversation_key: "qqbot:group:summary-crud-demo".to_string(),
+            summary_text: "第一版摘要".to_string(),
+        })
+        .await
+        .expect("summary saved");
+    assert_eq!(
+        summary.summary.expect("summary present").summary_text,
+        "第一版摘要"
+    );
+
+    let loaded = harness
+        .service
+        .get_conversation_summary(ConversationSummaryGetParams {
+            conversation_key: "qqbot:group:summary-crud-demo".to_string(),
+        })
+        .await
+        .expect("summary get succeeds");
+    assert_eq!(
+        loaded.summary.expect("loaded summary").summary_text,
+        "第一版摘要"
+    );
+
+    let hint = harness
+        .service
+        .add_prompt_hint(PromptHintAddParams {
+            locator: MemoryLocator {
+                conversation_key: "qqbot:group:summary-crud-demo".to_string(),
+                bot_instance: None,
+                workspace: None,
+                user_key: None,
+            },
+            scope_type: MemoryScopeType::BotInstance,
+            hint_text: "优先中文".to_string(),
+        })
+        .await
+        .expect("hint add succeeds");
+    assert_eq!(hint.hint.hint_text, "优先中文");
+
+    let removed = harness
+        .service
+        .remove_prompt_hint(PromptHintRemoveParams {
+            id: hint.hint.id.clone(),
+        })
+        .await
+        .expect("hint remove succeeds");
+    assert!(removed.archived);
+
+    let cleared = harness
+        .service
+        .clear_conversation_summary(ConversationSummaryClearParams {
+            conversation_key: "qqbot:group:summary-crud-demo".to_string(),
+        })
+        .await
+        .expect("summary clear succeeds");
+    assert!(cleared.cleared);
+}
+
+#[tokio::test]
 async fn bind_workspace_rejects_paths_outside_allowed_root() {
     let harness = create_harness(&["/tmp/qodex-root"]).await;
 
@@ -434,7 +791,10 @@ fn parse_command_approval_request_maps_raw_payload_into_internal_seed() {
             super::backend_events::BackendServerRequest::Approval(seed),
         ) => {
             assert_eq!(seed.request_id, json!(7));
-            assert_eq!(seed.approval.backend_kind, crate::backend::BackendKind::Codex);
+            assert_eq!(
+                seed.approval.backend_kind,
+                crate::backend::BackendKind::Codex
+            );
             assert_eq!(seed.approval.approval_id, "approval-1");
             assert_eq!(seed.approval.thread_id, "thread-test-1");
             assert_eq!(seed.approval.turn_id, "turn-test-1");
@@ -494,7 +854,10 @@ async fn project_turn_completed_typed_event_persists_message_and_broadcasts_deli
     let event = events.recv().await.expect("completion event published");
     match event {
         EdgeEvent::ConversationCompleted(completed) => {
-            assert_eq!(completed.conversation_key, "qqbot:group:projector-completed-demo");
+            assert_eq!(
+                completed.conversation_key,
+                "qqbot:group:projector-completed-demo"
+            );
             assert_eq!(completed.thread_id, send_response.thread_id);
             assert_eq!(completed.turn_id, send_response.turn_id);
             assert_eq!(completed.text, "assistant final text");
@@ -508,7 +871,10 @@ async fn project_turn_completed_typed_event_persists_message_and_broadcasts_deli
         .list_message_log("qqbot:group:projector-completed-demo")
         .await
         .expect("messages load");
-    assert_eq!(messages.last().map(|entry| entry.role.as_str()), Some("assistant"));
+    assert_eq!(
+        messages.last().map(|entry| entry.role.as_str()),
+        Some("assistant")
+    );
 }
 
 #[tokio::test]

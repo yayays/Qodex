@@ -14,6 +14,15 @@ class MockCoreClient extends EventEmitter {
   lastSendMessageParams: any;
   lastNewThreadParams: any;
   lastRespondApprovalParams: any;
+  lastRememberMemoryParams: any;
+  lastForgetMemoryParams: any;
+  lastGetMemoryProfileParams: any;
+  lastUpsertMemoryProfileParams: any;
+  lastGetConversationSummaryParams: any;
+  lastUpsertConversationSummaryParams: any;
+  lastClearConversationSummaryParams: any;
+  lastAddPromptHintParams: any;
+  lastRemovePromptHintParams: any;
   statusResponse: any = {
     conversation: null,
     pendingApprovals: [],
@@ -32,6 +41,26 @@ class MockCoreClient extends EventEmitter {
   };
   pendingDeliveries: any = {
     pending: [],
+  };
+  memoryContextResponse: any = {
+    link: {
+      conversationKey: 'qqbot:group:demo',
+      botInstance: 'qqbot',
+      workspace: '/tmp/qodex',
+      userKey: 'qqbot:group:tester',
+      createdAt: '2026-03-23T00:00:00.000Z',
+      updatedAt: '2026-03-23T00:00:00.000Z',
+    },
+    conversationSummary: null,
+    profiles: [],
+    promptHints: [],
+    facts: [],
+  };
+  memoryProfileResponse: any = {
+    profile: null,
+  };
+  conversationSummaryResponse: any = {
+    summary: null,
   };
   ackedDeliveries: string[] = [];
 
@@ -73,6 +102,104 @@ class MockCoreClient extends EventEmitter {
 
   async running() {
     return this.runningResponse;
+  }
+
+  async listMemory() {
+    return this.memoryContextResponse;
+  }
+
+  async rememberMemory(params?: unknown) {
+    this.lastRememberMemoryParams = params;
+    return {
+      fact: {
+        id: 'mem-1',
+        scopeType: (params as any)?.scopeType ?? 'user',
+        scopeKey: 'qqbot:group:tester',
+        category: (params as any)?.category ?? 'preference',
+        content: (params as any)?.content ?? '默认用中文回复',
+        confidence: 1,
+        source: 'manual',
+        status: 'active',
+        createdAt: '2026-03-23T00:00:00.000Z',
+        updatedAt: '2026-03-23T00:00:00.000Z',
+      },
+    };
+  }
+
+  async forgetMemory(params?: { id: string }) {
+    this.lastForgetMemoryParams = params;
+    return {
+      id: params?.id ?? 'mem-1',
+      archived: true,
+    };
+  }
+
+  async getMemoryProfile(params?: unknown) {
+    this.lastGetMemoryProfileParams = params;
+    return this.memoryProfileResponse;
+  }
+
+  async upsertMemoryProfile(params?: unknown) {
+    this.lastUpsertMemoryProfileParams = params;
+    return {
+      profile: {
+        scopeType: (params as any)?.scopeType ?? 'user',
+        scopeKey: 'qqbot:group:tester',
+        profileJson: JSON.stringify((params as any)?.profile ?? {}),
+        version: 2,
+        createdAt: '2026-03-23T00:00:00.000Z',
+        updatedAt: '2026-03-23T00:05:00.000Z',
+      },
+    };
+  }
+
+  async getConversationSummary(params?: unknown) {
+    this.lastGetConversationSummaryParams = params;
+    return this.conversationSummaryResponse;
+  }
+
+  async upsertConversationSummary(params?: unknown) {
+    this.lastUpsertConversationSummaryParams = params;
+    return {
+      summary: {
+        conversationKey: (params as any)?.conversationKey ?? 'qqbot:group:demo',
+        summaryText: (params as any)?.summaryText ?? 'summary',
+        version: 2,
+        createdAt: '2026-03-23T00:00:00.000Z',
+        updatedAt: '2026-03-23T00:05:00.000Z',
+      },
+    };
+  }
+
+  async clearConversationSummary(params?: unknown) {
+    this.lastClearConversationSummaryParams = params;
+    return {
+      conversationKey: (params as any)?.conversationKey ?? 'qqbot:group:demo',
+      cleared: true,
+    };
+  }
+
+  async addPromptHint(params?: unknown) {
+    this.lastAddPromptHintParams = params;
+    return {
+      hint: {
+        id: 'hint-1',
+        scopeType: (params as any)?.scopeType ?? 'user',
+        scopeKey: 'qqbot:group:tester',
+        hintText: (params as any)?.hintText ?? '默认中文回复',
+        status: 'active',
+        createdAt: '2026-03-23T00:00:00.000Z',
+        updatedAt: '2026-03-23T00:00:00.000Z',
+      },
+    };
+  }
+
+  async removePromptHint(params?: unknown) {
+    this.lastRemovePromptHintParams = params;
+    return {
+      id: (params as any)?.id ?? 'hint-1',
+      archived: true,
+    };
   }
 
   async listPendingDeliveries() {
@@ -255,6 +382,205 @@ test('new command forwards the per-message backend selection', async () => {
     conversationKey: 'qqbot:group:new-opencode-demo',
     backendKind: 'opencode',
   });
+});
+
+test('memory command renders active memory context', async () => {
+  const core = new MockCoreClient();
+  core.memoryContextResponse = {
+    link: {
+      conversationKey: 'qqbot:group:memory-demo',
+      botInstance: 'qqbot',
+      workspace: '/tmp/qodex',
+      userKey: 'qqbot:group:tester',
+      createdAt: '2026-03-23T00:00:00.000Z',
+      updatedAt: '2026-03-23T00:00:00.000Z',
+    },
+    conversationSummary: {
+      conversationKey: 'qqbot:group:memory-demo',
+      summaryText: '已经确认仓库结构与交付边界。',
+      version: 1,
+      createdAt: '2026-03-23T00:00:00.000Z',
+      updatedAt: '2026-03-23T00:00:00.000Z',
+    },
+    profiles: [
+      {
+        scopeType: 'user',
+        scopeKey: 'qqbot:group:tester',
+        profileJson: JSON.stringify({ language: 'zh-CN', style: 'concise' }),
+        version: 1,
+        createdAt: '2026-03-23T00:00:00.000Z',
+        updatedAt: '2026-03-23T00:00:00.000Z',
+      },
+    ],
+    promptHints: [
+      {
+        id: 'hint-1',
+        scopeType: 'user',
+        scopeKey: 'qqbot:group:tester',
+        hintText: '优先给出可执行命令',
+        status: 'active',
+        createdAt: '2026-03-23T00:00:00.000Z',
+        updatedAt: '2026-03-23T00:00:00.000Z',
+      },
+    ],
+    facts: [
+      {
+        id: 'mem-1',
+        scopeType: 'workspace',
+        scopeKey: '/tmp/qodex',
+        category: 'repo_rule',
+        content: 'prefer minimal diffs',
+        confidence: 1,
+        source: 'manual',
+        status: 'active',
+        createdAt: '2026-03-23T00:00:00.000Z',
+        updatedAt: '2026-03-23T00:00:00.000Z',
+      },
+    ],
+  };
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  await runtime.handleIncoming(buildMessage('qqbot:group:memory-demo', '/memory'), sink);
+
+  const reply = messages.at(-1);
+  assert.ok(reply);
+  assert.match(reply.text, /Active memory/);
+  assert.match(reply.text, /bot=qqbot/);
+  assert.match(reply.text, /summary=已经确认仓库结构与交付边界/);
+  assert.match(reply.text, /{"language":"zh-CN","style":"concise"}/);
+  assert.match(reply.text, /hint-1 user 优先给出可执行命令/);
+  assert.match(reply.text, /mem-1 workspace \[repo_rule\] prefer minimal diffs/);
+});
+
+test('remember command forwards scoped memory writes', async () => {
+  const core = new MockCoreClient();
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:remember-demo', '/remember user preference 默认用中文回复'),
+    sink,
+  );
+
+  assert.equal(core.lastRememberMemoryParams.scopeType, 'user');
+  assert.equal(core.lastRememberMemoryParams.category, 'preference');
+  assert.equal(core.lastRememberMemoryParams.content, '默认用中文回复');
+  assert.equal(core.lastRememberMemoryParams.botInstance, 'qqbot');
+  assert.equal(core.lastRememberMemoryParams.userKey, 'qqbot:group:tester');
+  assert.match(messages.at(-1)?.text ?? '', /Memory saved/);
+});
+
+test('forget command archives a memory by id', async () => {
+  const core = new MockCoreClient();
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:forget-demo', '/forget mem-123'),
+    sink,
+  );
+
+  assert.deepEqual(core.lastForgetMemoryParams, { id: 'mem-123' });
+  assert.match(messages.at(-1)?.text ?? '', /Memory archived: mem-123/);
+});
+
+test('profile command supports nested assignment, append, remove, and delete', async () => {
+  const core = new MockCoreClient();
+  core.memoryProfileResponse = {
+    profile: {
+      scopeType: 'user',
+      scopeKey: 'qqbot:group:tester',
+      profileJson: JSON.stringify({
+        language: 'zh-CN',
+        preferences: {
+          tone: 'direct',
+        },
+        tags: ['rust', 'ts'],
+        obsolete: true,
+      }),
+      version: 1,
+      createdAt: '2026-03-23T00:00:00.000Z',
+      updatedAt: '2026-03-23T00:00:00.000Z',
+    },
+  };
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  await runtime.handleIncoming(
+    buildMessage(
+      'qqbot:group:profile-demo',
+      '/profile user preferences.style=concise tags+=memory tags-=ts !obsolete flags={"safe":true}',
+    ),
+    sink,
+  );
+
+  assert.equal(core.lastGetMemoryProfileParams.scopeType, 'user');
+  assert.deepEqual(core.lastUpsertMemoryProfileParams.profile, {
+    language: 'zh-CN',
+    preferences: {
+      tone: 'direct',
+      style: 'concise',
+    },
+    tags: ['rust', 'memory'],
+    flags: {
+      safe: true,
+    },
+  });
+  assert.match(messages.at(-1)?.text ?? '', /Profile updated/);
+  assert.match(messages.at(-1)?.text ?? '', /"style":"concise"/);
+});
+
+test('summary command reads and updates conversation summary', async () => {
+  const core = new MockCoreClient();
+  core.conversationSummaryResponse = {
+    summary: {
+      conversationKey: 'qqbot:group:summary-demo',
+      summaryText: '已有摘要',
+      version: 1,
+      createdAt: '2026-03-23T00:00:00.000Z',
+      updatedAt: '2026-03-23T00:00:00.000Z',
+    },
+  };
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  await runtime.handleIncoming(buildMessage('qqbot:group:summary-demo', '/summary'), sink);
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:summary-demo', '/summary 新一轮开始，已锁定目标接口'),
+    sink,
+  );
+
+  assert.deepEqual(core.lastGetConversationSummaryParams, {
+    conversationKey: 'qqbot:group:summary-demo',
+  });
+  assert.deepEqual(core.lastUpsertConversationSummaryParams, {
+    conversationKey: 'qqbot:group:summary-demo',
+    summaryText: '新一轮开始，已锁定目标接口',
+  });
+  assert.match(messages[0].text, /text=已有摘要/);
+  assert.match(messages[1].text, /Conversation summary updated/);
+});
+
+test('hint and unhint commands forward prompt hint writes', async () => {
+  const core = new MockCoreClient();
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:hint-demo', '/hint workspace 回答先给结论再展开'),
+    sink,
+  );
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:hint-demo', '/unhint hint-123'),
+    sink,
+  );
+
+  assert.equal(core.lastAddPromptHintParams.scopeType, 'workspace');
+  assert.equal(core.lastAddPromptHintParams.hintText, '回答先给结论再展开');
+  assert.equal(core.lastRemovePromptHintParams.id, 'hint-123');
+  assert.match(messages[0].text, /Prompt hint saved/);
+  assert.match(messages[1].text, /Prompt hint archived: hint-123/);
 });
 
 test('running command uses the configured backend label in status copy', async () => {

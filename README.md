@@ -1,293 +1,89 @@
 # Qodex
 
-[中文说明](./README.zh-CN.md)
+Qodex 用来把 QQ 等聊天渠道接到你自己的 Codex 或 OpenCode 运行时。
 
-Qodex connects QQ and other chat channels to your own Codex or OpenCode runtime.
+它解决的不是“再造一个聊天机器人”，而是把你已经在本机使用的编码能力，变成可远程收发、可审批、可持续接续的聊天入口。
 
-Its main idea is simple:
+核心链路：
 
-`QQ -> qodex-edge -> qodex-core -> Codex/OpenCode`
+`channel -> qodex-edge -> qodex-core -> Codex / OpenCode`
 
-So you can:
+## 项目特点
 
-- send tasks to your own coding backend from QQ
-- receive streaming output in chat
-- handle approvals remotely
-- keep workspace and session context attached to conversations
+- 把聊天会话绑定到本地 workspace 和后端 thread，不只是转发一条消息
+- 支持流式输出、审批转发、图片输入转发等真实编码场景
+- 同时支持 `Codex` 和 `OpenCode` 两类后端
+- 核心层用 Rust 实现，渠道与宿主层用 TypeScript 实现，便于扩展和接入
+- 自带 `console` 渠道，可先本地验证，再接 QQ 等外部渠道
 
-In short: Qodex lets you carry your own Codex / OpenCode workflow with you.
+## 主要组件
 
-## Components
+- `crates/qodex-core`：负责后端连接、状态管理、审批流转和持久化
+- `packages/qodex-edge`：负责渠道加载、消息路由、命令处理和宿主运行时
+- `packages/qodex-channel-qqbot`：QQ 渠道插件
 
-- `qodex-core` — Rust service for backend connectivity, state, approvals, and persistence
-- `qodex-edge` — TypeScript host for channels, routing, commands, and delivery
-- `packages/qodex-channel-qqbot` — QQ channel plugin
+## 适合的使用方式
 
-## Architecture
+- 在 QQ 中给自己的 Codex / OpenCode 发任务
+- 在聊天里查看流式执行过程和最终结果
+- 远程处理 approval，不必一直守在终端前
+- 让同一个聊天会话持续对应同一个工作区和线程上下文
 
-- current implemented architecture: [docs/current-architecture.md](./docs/current-architecture.md)
+## 快速开始
 
-## Plugin Development
-
-- plugin contract and version/capability rules: [packages/qodex-edge/README.md](./packages/qodex-edge/README.md)
-
-## Current Scope
-
-- Codex and OpenCode backend support
-- conversation-to-workspace/thread binding
-- streaming updates and completion events
-- approval forwarding
-- image input forwarding
-- built-in console channel for local development
-- early QQ channel support
-
-## Dependencies
-
-Before running Qodex locally, make sure the required runtime environments and CLIs are installed and available in `PATH`:
-
-- Required for all setups:
-  - `Node.js` 22+
-  - `npm` 10+
-  - Rust toolchain via `rustup` (`rustc` + `cargo`)
-- Required only when using the Codex backend:
-  - `codex` CLI
-- Required only when using the OpenCode backend:
-  - `opencode` CLI
-
-Check them with:
-
-```bash
-node -v
-npm -v
-rustc --version
-cargo --version
-codex --version
-opencode --version
-```
-
-You do not need both `codex` and `opencode`. Install the one that matches your `[backend].kind`.
-
-If Rust is not installed yet, install it first with `rustup`, then confirm `rustc` and `cargo` are available.
-
-## Configuration
-
-1. Create a local config file:
-
-```bash
-cp qodex.example.toml qodex.toml
-```
-
-2. Edit `qodex.toml` and replace the placeholder paths in `[codex]`:
-
-- `default_workspace = "/ABSOLUTE/PATH/TO/YOUR/WORKSPACE"`
-- `allowed_workspaces = ["/ABSOLUTE/PATH/TO/YOUR/WORKSPACE"]`
-
-At minimum, both values must point to a real local workspace you want Codex/OpenCode to access.
-
-3. If you want to use QQ, uncomment and fill in a `channels.qq` block. For local verification only, the built-in console channel is already enabled in the example config.
-
-## Install Dependencies
-
-Install the JavaScript workspace dependencies once:
+1. 安装依赖环境：`Node.js`、`npm`、Rust，以及你实际要使用的 `codex` 或 `opencode`
+2. 安装工作区依赖：
 
 ```bash
 npm install
 ```
 
-Rust dependencies are resolved automatically when you run `cargo build`, `cargo check`, or `cargo run`.
-
-## Run Qodex
-
-### Quick start script
-
-For a first local deploy with the minimum required config, you can simply run:
+3. 生成并补全本地配置：
 
 ```bash
-npm run quick:start
+cp qodex.example.toml qodex.toml
 ```
 
-When required arguments are missing, `quick:start` now asks for them interactively.
+至少要把下面两个路径改成真实工作区：
 
-You can still use it non-interactively like this:
+- `default_workspace`
+- `allowed_workspaces`
 
-```bash
-npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel console --no-start
-```
-
-That script:
-
-- creates `qodex.toml` when it does not exist yet
-- fills the required workspace-related fields
-- keeps a minimal local console-only configuration
-- runs `doctor:qodex` automatically
-
-If you want it to generate the config and immediately launch Qodex:
+4. 用最小配置启动本地验证：
 
 ```bash
 npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel console
 ```
 
-Useful flags:
-
-- `--channel console`, `--channel qq`, or `--channel wechat`
-- `--backend codex` or `--backend opencode`
-- `--config ./custom.qodex.toml`
-- `--force` to rewrite the target config file
-- `--skip-app-server` when the backend server is already running
-- `--no-start` to stop after generating config + running doctor
-
-Channel-specific minimum arguments:
-
-- `console`
-  - `--workspace ...`
-- `qq`
-  - `--workspace ... --channel qq --app-id YOUR_APP_ID --client-secret-file /ABSOLUTE/PATH/TO/qqbot.secret`
-- `wechat`
-  - `--workspace ... --channel wechat`
-  - optional: `--clawbot-api-token`, `--bridge-port`, `--signature-header`, `--signature-token`
-
-When `--channel wechat` is selected, `quick:start` also generates a minimal `[clawbot_bridge.*]` block.
-If you launch without `--no-start`, it starts both the normal Qodex host and the local WeChat/ClawBot bridge process.
-
-### Option 1: one-command local startup
-
-This is the simplest way to run the full local stack:
+如果你只想生成配置并做预检，不立即启动：
 
 ```bash
-npm run start:qodex
+npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel console --no-start
 ```
 
-Equivalent explicit form:
-
-```bash
-npm run host:qodex -- --config ./qodex.toml
-```
-
-What it does:
-
-- starts `codex app-server` automatically when the configured backend needs Codex
-- starts `opencode serve` automatically when the configured backend needs OpenCode
-- starts `qodex-core`
-- starts the embedded `qodex-edge` host
-
-If your backend server is already running elsewhere, skip the managed backend process:
-
-```bash
-npm run start:qodex:skip-backend
-```
-
-Equivalent explicit form:
-
-```bash
-npm run host:qodex -- --config ./qodex.toml --skip-app-server
-```
-
-### Preflight and status
-
-Before first startup, run a local environment/config preflight:
+## 常用命令
 
 ```bash
 npm run doctor:qodex
+npm run start:qodex
+npm run start:qodex:skip-backend
+cargo check -p qodex-core
+cargo test -p qodex-core
+npm --workspace @qodex/edge run check
 ```
 
-This checks:
+## 文档入口
 
-- required CLIs such as `node`, `npm`, `cargo`, and the configured backend CLI
-- the configured workspace paths
-- database parent directory
-- enabled channel plugin and QQ secret-file paths
+- 当前架构：[docs/current-architecture.md](./docs/current-architecture.md)
+- 协作流程：[docs/ai-collaboration.md](./docs/ai-collaboration.md)
+- 执行约定：[docs/execution-practices.md](./docs/execution-practices.md)
+- 任务工作流：[docs/tasks/README.md](./docs/tasks/README.md)
+- Edge / 插件约定：[packages/qodex-edge/README.md](./packages/qodex-edge/README.md)
 
-To check whether the currently configured local stack is reachable:
+## 配置说明
 
-```bash
-npm run status:qodex
-```
+- 提交配置模板 `qodex.example.toml`
+- 本地运行配置使用未跟踪的 `qodex.toml`
+- 不要把 token、密钥、真实 QQ 凭证和机器本地路径提交进仓库
 
-This probes:
-
-- `qodex-core` healthz
-- `qodex-core` WebSocket API
-- the configured backend service (`codex app-server` and/or `opencode`)
-
-### Option 2: start services separately
-
-Use this when you want to debug each layer independently.
-
-1. Start the backend server you actually use.
-
-For Codex:
-
-```bash
-codex app-server --listen ws://127.0.0.1:8765
-```
-
-For OpenCode:
-
-```bash
-opencode serve --hostname 127.0.0.1 --port 4097
-```
-
-2. Start `qodex-core`:
-
-```bash
-cargo run -p qodex-core -- --config ./qodex.toml
-```
-
-3. Start `qodex-edge`:
-
-```bash
-npm --workspace @qodex/edge run dev -- --config ./qodex.toml
-```
-
-For a non-interactive edge host:
-
-```bash
-npm --workspace @qodex/edge run dev -- --config ./qodex.toml --headless
-```
-
-## Local Console Testing
-
-The example config already enables a built-in console channel:
-
-```toml
-[channels.console]
-enabled = true
-plugin = "builtin:console"
-```
-
-So after startup, you can test locally without QQ first:
-
-- type messages in the interactive console started by `npm --workspace @qodex/edge run dev`
-- or run the one-command host and let it keep the edge host alive in headless mode
-
-## Development Commands
-
-- `npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel console --no-start`
-- `npm run start:qodex`
-- `npm run start:qodex:skip-backend`
-- `npm run doctor:qodex`
-- `npm run status:qodex`
-- `cargo check -p qodex-core`
-- `cargo build -p qodex-core`
-- `cargo test -p qodex-core`
-- `npm --workspace @qodex/edge run check`
-- `npm --workspace @qodex/edge run build`
-- `npm --workspace @qodex/channel-qqbot run check`
-- `npm --workspace @qodex/channel-qqbot run build`
-
-## Config Notes
-
-- commit `qodex.example.toml`, not `qodex.toml`
-- keep secrets, tokens, credentials, logs, and local state out of git
-- global backend selection lives under `[backend]`
-- per-channel backend override lives under `[channels.<name>.config.backend]`
-
-## QQ Channel
-
-The QQ plugin is still early, but it already shows the core value:
-
-use QQ as a remote control surface for your own Codex / OpenCode workflow.
-
-## Status
-
-Qodex is usable for local development, but still evolving.
+Qodex 目前已经适合本地开发和持续迭代。若你只想先判断它是否适合自己的流程，建议先从内置 `console` 渠道开始，再接入 QQ。

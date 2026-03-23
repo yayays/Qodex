@@ -1,67 +1,69 @@
 # Qodex
 
-Qodex 用来把 QQ 等聊天渠道接到你自己的 Codex 或 OpenCode 运行时。
+[中文说明](./README.zh-CN.md)
 
-它解决的不是“再造一个聊天机器人”，而是把你已经在本机使用的编码能力，变成可远程收发、可审批、可持续接续的聊天入口。
+Qodex connects QQ and other chat channels to your own Codex or OpenCode runtime.
 
-核心链路：
+It is not another chatbot wrapper. Its purpose is to turn your local coding runtime into a remote, stateful chat entrypoint with streaming output, approvals, and conversation-bound workspace context.
+
+Core path:
 
 `channel -> qodex-edge -> qodex-core -> Codex / OpenCode`
 
-## 项目特点
+## Highlights
 
-- 把聊天会话绑定到本地 workspace 和后端 thread，不只是转发一条消息
-- 支持流式输出、审批转发、图片输入转发等真实编码场景
-- 同时支持 `Codex` 和 `OpenCode` 两类后端
-- 核心层用 Rust 实现，渠道与宿主层用 TypeScript 实现，便于扩展和接入
-- 自带 `console` 渠道，可先本地验证，再接 QQ 等外部渠道
+- Binds chat conversations to local workspaces and backend threads
+- Supports streaming output, approval forwarding, and image input forwarding
+- Works with both `Codex` and `OpenCode`
+- Uses Rust for the core service and TypeScript for the host and channel runtime
+- Includes a built-in `console` channel for local verification before connecting QQ
 
-## 主要组件
+## Components
 
-- `crates/qodex-core`：负责后端连接、状态管理、审批流转和持久化
-- `packages/qodex-edge`：负责渠道加载、消息路由、命令处理和宿主运行时
-- `packages/qodex-channel-qqbot`：QQ 渠道插件
+- `crates/qodex-core`: backend connectivity, state, approvals, and persistence
+- `packages/qodex-edge`: channel loading, routing, commands, and host runtime
+- `packages/qodex-channel-qqbot`: QQ channel plugin
 
-## 适合的使用方式
+## Typical Use
 
-- 在 QQ 中给自己的 Codex / OpenCode 发任务
-- 在聊天里查看流式执行过程和最终结果
-- 远程处理 approval，不必一直守在终端前
-- 让同一个聊天会话持续对应同一个工作区和线程上下文
+- Send tasks to your own Codex / OpenCode from QQ
+- Read streaming progress and final output in chat
+- Handle approvals remotely
+- Keep one conversation attached to one workspace and thread context
 
-## 快速开始
+## Quick Start
 
-1. 安装依赖环境：`Node.js`、`npm`、Rust，以及你实际要使用的 `codex` 或 `opencode`
-2. 安装工作区依赖：
+1. Install `Node.js`, `npm`, Rust, and the backend CLI you actually use: `codex` or `opencode`
+2. Install workspace dependencies:
 
 ```bash
 npm install
 ```
 
-3. 生成并补全本地配置：
+3. Create local config:
 
 ```bash
 cp qodex.example.toml qodex.toml
 ```
 
-至少要把下面两个路径改成真实工作区：
+At minimum, replace these with a real local workspace path:
 
 - `default_workspace`
 - `allowed_workspaces`
 
-4. 用最小配置启动本地验证：
+4. Start with the smallest local setup:
 
 ```bash
 npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel console
 ```
 
-如果你只想生成配置并做预检，不立即启动：
+If you only want config generation plus preflight checks:
 
 ```bash
 npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel console --no-start
 ```
 
-## 常用命令
+## Common Commands
 
 ```bash
 npm run doctor:qodex
@@ -72,18 +74,18 @@ cargo test -p qodex-core
 npm --workspace @qodex/edge run check
 ```
 
-## 文档入口
+## Docs
 
-- 当前架构：[docs/current-architecture.md](./docs/current-architecture.md)
-- 协作流程：[docs/ai-collaboration.md](./docs/ai-collaboration.md)
-- 执行约定：[docs/execution-practices.md](./docs/execution-practices.md)
-- 任务工作流：[docs/tasks/README.md](./docs/tasks/README.md)
-- Edge / 插件约定：[packages/qodex-edge/README.md](./packages/qodex-edge/README.md)
+- Architecture: [docs/current-architecture.md](./docs/current-architecture.md)
+- Collaboration: [docs/ai-collaboration.md](./docs/ai-collaboration.md)
+- Execution practices: [docs/execution-practices.md](./docs/execution-practices.md)
+- Task workflow: [docs/tasks/README.md](./docs/tasks/README.md)
+- Edge and plugin contract: [packages/qodex-edge/README.md](./packages/qodex-edge/README.md)
 
-## 配置说明
+## Config Notes
 
-- 提交配置模板 `qodex.example.toml`
-- 本地运行配置使用未跟踪的 `qodex.toml`
-- 不要把 token、密钥、真实 QQ 凭证和机器本地路径提交进仓库
+- Commit `qodex.example.toml`
+- Keep `qodex.toml` local and untracked
+- Never commit tokens, secrets, real QQ credentials, or machine-specific paths
 
-Qodex 目前已经适合本地开发和持续迭代。若你只想先判断它是否适合自己的流程，建议先从内置 `console` 渠道开始，再接入 QQ。
+Qodex is already usable for local development. If you want the fastest way to evaluate it, start with the built-in `console` channel and add QQ later.

@@ -98,9 +98,66 @@ Rust dependencies are resolved automatically when you run `cargo build`, `cargo 
 
 ## Run Qodex
 
+### Quick start script
+
+For a first local deploy with the minimum required config, you can simply run:
+
+```bash
+npm run quick:start
+```
+
+When required arguments are missing, `quick:start` now asks for them interactively.
+
+You can still use it non-interactively like this:
+
+```bash
+npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel console --no-start
+```
+
+That script:
+
+- creates `qodex.toml` when it does not exist yet
+- fills the required workspace-related fields
+- keeps a minimal local console-only configuration
+- runs `doctor:qodex` automatically
+
+If you want it to generate the config and immediately launch Qodex:
+
+```bash
+npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel console
+```
+
+Useful flags:
+
+- `--channel console`, `--channel qq`, or `--channel wechat`
+- `--backend codex` or `--backend opencode`
+- `--config ./custom.qodex.toml`
+- `--force` to rewrite the target config file
+- `--skip-app-server` when the backend server is already running
+- `--no-start` to stop after generating config + running doctor
+
+Channel-specific minimum arguments:
+
+- `console`
+  - `--workspace ...`
+- `qq`
+  - `--workspace ... --channel qq --app-id YOUR_APP_ID --client-secret-file /ABSOLUTE/PATH/TO/qqbot.secret`
+- `wechat`
+  - `--workspace ... --channel wechat`
+  - optional: `--clawbot-api-token`, `--bridge-port`, `--signature-header`, `--signature-token`
+
+When `--channel wechat` is selected, `quick:start` also generates a minimal `[clawbot_bridge.*]` block.
+If you launch without `--no-start`, it starts both the normal Qodex host and the local WeChat/ClawBot bridge process.
+
 ### Option 1: one-command local startup
 
 This is the simplest way to run the full local stack:
+
+```bash
+npm run start:qodex
+```
+
+Equivalent explicit form:
 
 ```bash
 npm run host:qodex -- --config ./qodex.toml
@@ -116,8 +173,41 @@ What it does:
 If your backend server is already running elsewhere, skip the managed backend process:
 
 ```bash
+npm run start:qodex:skip-backend
+```
+
+Equivalent explicit form:
+
+```bash
 npm run host:qodex -- --config ./qodex.toml --skip-app-server
 ```
+
+### Preflight and status
+
+Before first startup, run a local environment/config preflight:
+
+```bash
+npm run doctor:qodex
+```
+
+This checks:
+
+- required CLIs such as `node`, `npm`, `cargo`, and the configured backend CLI
+- the configured workspace paths
+- database parent directory
+- enabled channel plugin and QQ secret-file paths
+
+To check whether the currently configured local stack is reachable:
+
+```bash
+npm run status:qodex
+```
+
+This probes:
+
+- `qodex-core` healthz
+- `qodex-core` WebSocket API
+- the configured backend service (`codex app-server` and/or `opencode`)
 
 ### Option 2: start services separately
 
@@ -172,6 +262,11 @@ So after startup, you can test locally without QQ first:
 
 ## Development Commands
 
+- `npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel console --no-start`
+- `npm run start:qodex`
+- `npm run start:qodex:skip-backend`
+- `npm run doctor:qodex`
+- `npm run status:qodex`
 - `cargo check -p qodex-core`
 - `cargo build -p qodex-core`
 - `cargo test -p qodex-core`

@@ -1342,6 +1342,30 @@ async fn new_thread_can_switch_backend_and_reset_existing_thread_state() {
 }
 
 #[tokio::test]
+async fn new_thread_initializes_missing_conversation_with_default_workspace() {
+    let harness = create_harness(&["/tmp/qodex-workspace-a"]).await;
+
+    let status = harness
+        .service
+        .new_thread(ConversationKeyParams {
+            conversation_key: "webchat:c2c:wechat-user-demo".to_string(),
+            backend_kind: None,
+        })
+        .await
+        .expect("new thread succeeds");
+
+    let conversation = status.conversation.expect("conversation exists");
+    assert_eq!(conversation.conversation_key, "webchat:c2c:wechat-user-demo");
+    assert_eq!(conversation.platform, "webchat");
+    assert_eq!(conversation.scope, "c2c");
+    assert_eq!(conversation.external_id, "wechat-user-demo");
+    assert_eq!(conversation.workspace, "/tmp/qodex-workspace-a");
+    assert_eq!(conversation.thread_id, None);
+    assert_eq!(conversation.backend_kind, crate::backend::BackendKind::Codex);
+    assert!(status.pending_approvals.is_empty());
+}
+
+#[tokio::test]
 async fn stale_conversation_lock_is_pruned_after_release() {
     let harness = create_harness(&["/tmp/qodex-workspace-a"]).await;
     let held_lock = harness

@@ -2,10 +2,12 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { consoleChannelExtension } from './channels/console.js';
+import { wechatOpenClawCompatExtension } from './channels/wechat-openclaw-compat.js';
 import { QodexPluginExtension } from './plugin-contract.js';
 
 const builtins = new Map<string, QodexPluginExtension>([
   ['builtin:console', consoleChannelExtension],
+  ['builtin:wechat-openclaw-compat', wechatOpenClawCompatExtension],
 ]);
 
 export async function loadPluginExtension(pluginRef: string): Promise<QodexPluginExtension> {

@@ -2,6 +2,7 @@ export * from './channel-host.js';
 export * from './plugin-sdk.js';
 export * from './plugin-loader.js';
 export * from './channels/console.js';
+export * from './channels/wechat-openclaw-compat.js';
 export { qodexOpenClawPlugin, qodexPluginConfigSchema } from './openclaw-plugin.js';
 export * from './config.js';
 export * from './coreClient.js';

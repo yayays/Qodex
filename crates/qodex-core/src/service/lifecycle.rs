@@ -56,11 +56,25 @@ impl AppService {
             let conversation_lock = self.get_conversation_lock(&conversation_key).await;
             let _guard = conversation_lock.lock().await;
 
-            let conversation = self
-                .db
-                .get_conversation(&conversation_key)
-                .await?
-                .with_context(|| format!("conversation {} not found", conversation_key))?;
+            let conversation = if let Some(conversation) =
+                self.db.get_conversation(&conversation_key).await?
+            {
+                conversation
+            } else {
+                let parsed = parse_conversation_key(&conversation_key)?;
+                let workspace = self.config.codex.default_workspace.clone();
+                self.validate_workspace(&workspace)?;
+                self.db
+                    .create_conversation(NewConversation {
+                        conversation_key: &parsed.conversation_key,
+                        platform: &parsed.platform,
+                        scope: &parsed.scope,
+                        external_id: &parsed.external_id,
+                        workspace: &workspace,
+                        backend_kind: requested_backend_kind,
+                    })
+                    .await?
+            };
             let conversation = self
                 .sync_conversation_backend_kind(&conversation, requested_backend_kind)
                 .await?;

@@ -69,6 +69,33 @@ plugin = "builtin:console"
 
 [channels.console.config]
 
+# Example built-in WeChat compatibility channel backed by the Tencent iLink APIs.
+# Current v1 scope:
+# - QR login and token persistence
+# - basic text inbound polling
+# - text replies with context-token reuse
+# Not yet covered:
+# - media send/receive
+# - full OpenClaw runtime compatibility
+#
+# [channels.wechat]
+# enabled = true
+# plugin = "builtin:wechat-openclaw-compat"
+# channel_id = "wechat-openclaw-compat"
+# account_id = "wechat-main"
+#
+# [channels.wechat.config]
+# adapter_module = "builtin:tencent-wechat"
+# default_platform = "webchat"
+# api_base_url = "https://ilinkai.weixin.qq.com"
+# # State directory for saved bot token, sync buffer, and context tokens.
+# state_dir = "./data/wechat-openclaw-compat"
+# # Optional local artifact path for the latest QR payload.
+# login_artifact_dir = "./data/tmp/wechat-login"
+# qr_filename = "wechat-qr.txt"
+# request_timeout_ms = 15000
+# login_wait_timeout_ms = 480000
+
 # Example standalone QQ channel package for local development.
 # This works with:
 # npm run host:qodex -- --config ./qodex.toml

@@ -16,7 +16,7 @@ Qodex 用来把 QQ 和微信等聊天渠道接到你自己的 Codex 或 OpenCode
 - 支持流式输出、审批转发、图片输入转发等真实编码场景
 - 同时支持 `Codex` 和 `OpenCode`
 - 同时支持 `QQ` 和 `WeChat`
-- 内置微信兼容接入，可通过二维码登录并完成基础文本收发
+- 内置微信二维码登录接入，可完成基础文本收发
 - 核心服务使用 Rust，宿主和渠道运行时使用 TypeScript，便于扩展
 
 ## 主要组件
@@ -24,14 +24,7 @@ Qodex 用来把 QQ 和微信等聊天渠道接到你自己的 Codex 或 OpenCode
 - `crates/qodex-core`：负责后端连接、状态管理、审批流转和持久化
 - `packages/qodex-edge`：负责渠道加载、消息路由、命令处理和宿主运行时
 - `packages/qodex-channel-qqbot`：QQ 渠道插件
-
-## 适合的使用方式
-
-- 在 QQ 中给自己的 Codex / OpenCode 发任务
-- 通过内置 Tencent 微信适配器把 Qodex 接入微信并直接回复
-- 在聊天里查看流式执行过程和最终结果
-- 远程处理 approval
-- 让同一个聊天会话持续绑定同一个工作区和线程上下文
+- `qodex.example.toml`：共享配置结构和示例
 
 ## 快速开始
 
@@ -53,31 +46,24 @@ cp qodex.example.toml qodex.toml
 - `default_workspace`
 - `allowed_workspaces`
 
-4. 使用 Quick Start。
-
-微信内置扫码接入：
+4. 从微信开始：
 
 ```bash
 npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel wechat
 ```
 
-这个模式会：
+这个流程会生成内置微信适配器配置、启动 Qodex、输出二维码登录链接，并在你扫码后检查微信 session token 是否已经落盘。
 
-- 生成内置微信适配器配置
-- 启动 Qodex
-- 输出 `data/tmp/wechat-login/wechat-qr.txt` 中的二维码登录链接
-- 等你扫码确认后，再检查微信 session token 是否已经落盘
+从 QQ 开始：
+
+```bash
+npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel qq
+```
 
 如果你只想生成配置并做预检，不立即启动：
 
 ```bash
 npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel wechat --no-start
-```
-
-QQ 模式：
-
-```bash
-npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel qq
 ```
 
 ## 常用命令
@@ -93,51 +79,12 @@ npm --workspace @qodex/edge run check
 
 ## 微信支持
 
-Qodex 现在内置了微信兼容渠道：
+内置微信支持使用：
 
 - 渠道插件：`builtin:wechat-openclaw-compat`
 - 传输适配器：`builtin:tencent-wechat`
 
-当前 v1 范围：
-
-- 二维码登录
-- token、同步游标和 context token 持久化
-- 入站文本轮询
-- 出站文本回复
-
-当前 v1 限制：
-
-- 暂不支持媒体消息收发
-- 不是通用 OpenClaw 插件宿主
-- 还不能覆盖所有 OpenClaw 微信能力
-
-示例配置：
-
-```toml
-[channels.wechat]
-enabled = true
-plugin = "builtin:wechat-openclaw-compat"
-channel_id = "wechat-openclaw-compat"
-account_id = "wechat-main"
-
-[channels.wechat.config]
-adapter_module = "builtin:tencent-wechat"
-default_platform = "webchat"
-api_base_url = "https://ilinkai.weixin.qq.com"
-state_dir = "./data/wechat-openclaw-compat"
-login_artifact_dir = "./data/tmp/wechat-login"
-qr_filename = "wechat-qr.txt"
-request_timeout_ms = 15000
-login_wait_timeout_ms = 480000
-```
-
-使用这份配置启动整套本地栈：
-
-```bash
-npm run host:qodex -- --config ./qodex.toml
-```
-
-当渠道启动且本地没有已保存 token 时，Qodex 会进入 `waitingForScan`，并把最新二维码链接写入配置的登录产物目录。
+当前范围刻意收得很窄：二维码登录、token 持久化、入站文本轮询和出站文本回复。完整示例配置请直接看 [qodex.example.toml](./qodex.example.toml)。
 
 ## 文档入口
 
@@ -153,4 +100,4 @@ npm run host:qodex -- --config ./qodex.toml
 - 本地运行配置使用未跟踪的 `qodex.toml`
 - 不要把 token、密钥、真实 QQ 凭证和机器本地路径提交进仓库
 
-Qodex 已经适合本地开发和持续迭代。当前最快的端到端体验路径是内置微信扫码 Quick Start，或者在已有机器人凭证的前提下直接接入 QQ。
+Qodex 已经适合本地开发。最短的体验路径就是用 `quick:start` 直接从 `wechat` 或 `qq` 开始。

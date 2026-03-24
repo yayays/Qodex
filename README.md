@@ -2,7 +2,7 @@
 
 [中文说明](./README.zh-CN.md)
 
-Qodex connects QQ and other chat channels to your own Codex or OpenCode runtime.
+Qodex connects QQ and WeChat chat channels to your own Codex or OpenCode runtime.
 
 It is not another chatbot wrapper. Its purpose is to turn your local coding runtime into a remote, stateful chat entrypoint with streaming output, approvals, and conversation-bound workspace context.
 
@@ -15,6 +15,7 @@ Core path:
 - Binds chat conversations to local workspaces and backend threads
 - Supports streaming output, approval forwarding, and image input forwarding
 - Works with both `Codex` and `OpenCode`
+- Supports both `QQ` and `WeChat`
 - Includes a built-in WeChat compatibility path for QR login and basic text messaging
 - Uses Rust for the core service and TypeScript for the host and channel runtime
 - Includes a built-in `console` channel for local verification before connecting QQ
@@ -53,16 +54,31 @@ At minimum, replace these with a real local workspace path:
 - `default_workspace`
 - `allowed_workspaces`
 
-4. Start with the smallest local setup:
+4. Start with Quick Start.
+
+For WeChat:
 
 ```bash
-npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel console
+npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel wechat
 ```
+
+That mode will:
+
+- generate the built-in WeChat adapter config
+- start Qodex
+- print a QR login link from `data/tmp/wechat-login/wechat-qr.txt`
+- wait for you to scan and confirm, then verify that the saved WeChat session token exists
 
 If you only want config generation plus preflight checks:
 
 ```bash
-npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel console --no-start
+npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel wechat --no-start
+```
+
+For QQ:
+
+```bash
+npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel qq
 ```
 
 ## Common Commands
@@ -138,4 +154,4 @@ When the channel starts and no saved token is present, Qodex enters `waitingForS
 - Keep `qodex.toml` local and untracked
 - Never commit tokens, secrets, real QQ credentials, or machine-specific paths
 
-Qodex is already usable for local development. If you want the fastest way to evaluate it, start with the built-in `console` channel and add QQ later.
+Qodex is already usable for local development. The fastest end-to-end path now is the built-in WeChat QR-login quick start, or QQ if you already have bot credentials.

@@ -397,6 +397,15 @@ export class QodexChannelHost {
       runtime: this.runtimeApi,
       getStatus: () => instance.status,
       setStatus: (status: ChannelRuntimeStatus) => {
+        this.logger.info(
+          {
+            instanceId: instance.entry.instanceId,
+            channelId: instance.plugin.id,
+            accountId: instance.entry.accountId,
+            ...status,
+          },
+          'channel status updated',
+        );
         instance.status = status;
       },
     });

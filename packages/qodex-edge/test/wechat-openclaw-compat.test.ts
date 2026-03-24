@@ -21,6 +21,32 @@ class RecordingRuntime {
   }
 }
 
+class RecordingLogger {
+  readonly infoLogs: Array<{ bindings?: Record<string, unknown>; obj?: Record<string, unknown>; msg?: string }> = [];
+
+  child(bindings: Record<string, unknown>) {
+    return {
+      child: (nextBindings: Record<string, unknown>) => this.child({ ...bindings, ...nextBindings }),
+      info: (obj: Record<string, unknown>, msg?: string) => {
+        this.infoLogs.push({ bindings, obj, msg });
+      },
+      warn() {},
+      error() {},
+      debug() {},
+    };
+  }
+
+  info(obj: Record<string, unknown>, msg?: string) {
+    this.infoLogs.push({ obj, msg });
+  }
+
+  warn() {}
+
+  error() {}
+
+  debug() {}
+}
+
 test('wechat compat channel reports waiting-for-scan status when adapter emits qr login state', async () => {
   resetFakeWechatAdapterState();
   const runtime = new RecordingRuntime();
@@ -111,6 +137,29 @@ test('wechat compat channel sends outbound text through the active adapter', asy
       accountId: 'wechat-main',
     },
   ]);
+
+  await host.stop();
+});
+
+test('wechat compat channel logs login status transitions so qr confirmation is visible', async () => {
+  resetFakeWechatAdapterState();
+  const runtime = new RecordingRuntime();
+  const logger = new RecordingLogger();
+  const host = new QodexChannelHost(
+    runtime as any,
+    logger as any,
+    buildConfig({
+      emit_qr_on_start: true,
+      connect_on_start: true,
+    }),
+  );
+
+  await host.startConfiguredChannels();
+
+  const statusLogs = logger.infoLogs.filter((entry) => entry.msg === 'channel status updated');
+  assert.ok(statusLogs.some((entry) => entry.obj?.loginState === 'waitingForScan'));
+  assert.ok(statusLogs.some((entry) => entry.obj?.loginState === 'connected'));
+  assert.ok(statusLogs.some((entry) => entry.obj?.connected === true));
 
   await host.stop();
 });

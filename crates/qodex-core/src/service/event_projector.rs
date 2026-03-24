@@ -7,17 +7,19 @@ use crate::service::backend_events::{
 impl AppService {
     pub(super) async fn project_backend_event(&self, event: ParsedBackendEvent) -> Result<()> {
         match event {
-            ParsedBackendEvent::Notification { backend_kind, event } => {
-                self.project_backend_notification(backend_kind, event).await?
+            ParsedBackendEvent::Notification {
+                backend_kind,
+                event,
+            } => {
+                self.project_backend_notification(backend_kind, event)
+                    .await?
             }
             ParsedBackendEvent::ServerRequest(request) => {
                 self.project_backend_server_request(request).await?
             }
-            ParsedBackendEvent::Ignored { category, method } => debug!(
-                method,
-                category,
-                "ignoring backend event in V1"
-            ),
+            ParsedBackendEvent::Ignored { category, method } => {
+                debug!(method, category, "ignoring backend event in V1")
+            }
         }
         Ok(())
     }

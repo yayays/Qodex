@@ -9,12 +9,21 @@ import { RuntimeSessionState } from '../src/runtime/state.js';
 
 class MockCoreClient {
   ackedDeliveries: string[] = [];
+  respondApprovalCalls: Array<{ approvalId: string; decision: string }> = [];
 
   async ackDelivery(params: { eventId: string }) {
     this.ackedDeliveries.push(params.eventId);
     return {
       eventId: params.eventId,
       removed: true,
+    };
+  }
+
+  async respondApproval(params: { approvalId: string; decision: string }) {
+    this.respondApprovalCalls.push(params);
+    return {
+      approvalId: params.approvalId,
+      status: 'submitted',
     };
   }
 }
@@ -100,6 +109,51 @@ test('presenter renders approval messages and acknowledges deliveries directly',
   assert.deepEqual(core.ackedDeliveries, ['evt-approval-1']);
 });
 
+test('presenter auto-approves permission requests when enabled', async () => {
+  const core = new MockCoreClient();
+  const sessionState = new RuntimeSessionState();
+  sessionState.setAutoApprovePermissions('qqbot:group:presenter-auto-approval-demo', true);
+  const messages: Array<{ kind: string; text: string }> = [];
+  const sink: OutboundSink = {
+    async sendText(message) {
+      messages.push({ kind: message.kind, text: message.text });
+    },
+  };
+
+  const presenter = new RuntimeEventPresenter({
+    core: core as any,
+    logger: createLogger('fatal'),
+    config: buildConfig(),
+    sessionState,
+    resolveSink() {
+      return sink;
+    },
+    isFailedTurnStatus(status) {
+      return /failed|error|cancel/i.test(status);
+    },
+  });
+
+  await presenter.handleApproval({
+    eventId: 'evt-approval-2',
+    approvalId: 'approval-perm-1',
+    conversationKey: 'qqbot:group:presenter-auto-approval-demo',
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    kind: 'permissions',
+    reason: 'Need network',
+    summary: 'Permission approval requested',
+    availableDecisions: ['accept', 'decline'],
+    payloadJson: JSON.stringify({ permissions: { network: true } }),
+  });
+
+  assert.deepEqual(core.respondApprovalCalls, [
+    { approvalId: 'approval-perm-1', decision: 'accept' },
+  ]);
+  assert.equal(messages[0]?.kind, 'system');
+  assert.match(messages[0]?.text ?? '', /Auto-approved permission request/);
+  assert.deepEqual(core.ackedDeliveries, ['evt-approval-2']);
+});
+
 function buildConfig(): QodexConfig {
   return {
     server: {
@@ -109,6 +163,7 @@ function buildConfig(): QodexConfig {
       coreUrl: 'ws://127.0.0.1:7820/ws',
       requestTimeoutMs: 30_000,
       streamFlushMs: 0,
+      autoApprovePermissions: false,
     },
     logging: {
       rust: 'fatal',

@@ -215,6 +215,41 @@ test('resolveQQBotChannelConfig provides disabled voice defaults', async () => {
   assert.equal(config.voice.normalize.enabled, true);
 });
 
+test('resolveQQBotChannelConfig defaults voice autoSend to true when normalize is configured', async () => {
+  const config = await resolveQQBotChannelConfig({
+    appId: 'app-1',
+    clientSecret: 'secret-1',
+    voice: {
+      enabled: true,
+      normalize: {
+        api_base_url: 'http://127.0.0.1:8865/v1/normalize',
+      },
+    },
+  });
+
+  assert.equal(config.voice.enabled, true);
+  assert.equal(config.voice.autoSend, true);
+  assert.equal(config.voice.normalize.enabled, true);
+  assert.equal(config.voice.normalize.apiBaseUrl, 'http://127.0.0.1:8865/v1/normalize');
+});
+
+test('resolveQQBotChannelConfig keeps voice autoSend disabled when normalize is configured but disabled', async () => {
+  const config = await resolveQQBotChannelConfig({
+    appId: 'app-1',
+    clientSecret: 'secret-1',
+    voice: {
+      enabled: true,
+      normalize: {
+        enabled: false,
+        api_base_url: 'http://127.0.0.1:8865/v1/normalize',
+      },
+    },
+  });
+
+  assert.equal(config.voice.autoSend, false);
+  assert.equal(config.voice.normalize.enabled, false);
+});
+
 test('resolveQQBotChannelConfig parses nested voice aliases', async () => {
   const baseDir = join(tmpdir(), 'qodex-qqbot-config');
   const config = await resolveQQBotChannelConfig(

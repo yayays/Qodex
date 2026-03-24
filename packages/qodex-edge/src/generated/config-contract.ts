@@ -29,6 +29,7 @@ export const ConfigLoaderDefaults = {
   "edge.coreAuthToken": null,
   "edge.requestTimeoutMs": 30000,
   "edge.streamFlushMs": 1200,
+  "edge.autoApprovePermissions": false,
   "logging.rust": "info,qodex_core=debug",
   "logging.node": "info"
 } as const;

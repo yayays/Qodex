@@ -172,10 +172,13 @@ export function resolveQQBotVoiceConfig(
 ): QQBotVoiceConfig {
   const sttConfig = asRecord(input?.stt);
   const normalizeConfig = asRecord(input?.normalize);
+  const explicitAutoSend = readBoolean(input?.autoSend) ?? readBoolean(input?.auto_send);
+  const normalizeEnabled = readBoolean(normalizeConfig?.enabled) ?? true;
+  const hasExplicitNormalizeConfig = normalizeConfig !== undefined;
 
   return {
     enabled: readBoolean(input?.enabled) ?? false,
-    autoSend: readBoolean(input?.autoSend) ?? readBoolean(input?.auto_send) ?? false,
+    autoSend: explicitAutoSend ?? (hasExplicitNormalizeConfig ? normalizeEnabled : false),
     confirmationTtlMs:
       readInteger(input?.confirmationTtlMs) ?? readInteger(input?.confirmation_ttl_ms) ?? 300_000,
     requireConfirmationBelowConfidence:
@@ -208,7 +211,7 @@ export function resolveQQBotVoiceConfig(
       timeoutMs: readInteger(sttConfig?.timeoutMs) ?? readInteger(sttConfig?.timeout_ms) ?? 30_000,
     },
     normalize: {
-      enabled: readBoolean(normalizeConfig?.enabled) ?? true,
+      enabled: normalizeEnabled,
       provider: readString(normalizeConfig?.provider),
       model: readString(normalizeConfig?.model),
       apiBaseUrl:

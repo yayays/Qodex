@@ -14,6 +14,7 @@ class MockCoreClient extends EventEmitter {
   lastSendMessageParams: any;
   lastNewThreadParams: any;
   lastRespondApprovalParams: any;
+  respondApprovalCalls: any[] = [];
   lastRememberMemoryParams: any;
   lastForgetMemoryParams: any;
   lastGetMemoryProfileParams: any;
@@ -222,6 +223,7 @@ class MockCoreClient extends EventEmitter {
 
   async respondApproval(params?: unknown) {
     this.lastRespondApprovalParams = params;
+    this.respondApprovalCalls.push(params);
     return {
       approvalId: (params as { approvalId?: string } | undefined)?.approvalId ?? 'approval-test-1',
       status: 'submitted',
@@ -960,6 +962,55 @@ test('reject resolves approval by short id token', async () => {
   });
 });
 
+test('approveall toggles auto-approve and resolves pending permission approvals', async () => {
+  const core = new MockCoreClient();
+  core.statusResponse = {
+    conversation: null,
+    pendingApprovals: [
+      {
+        approvalId: 'perm-approval-1',
+        requestId: 'request-1',
+        conversationKey: 'qqbot:group:approval-demo',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'item-1',
+        kind: 'permissions',
+        payloadJson: '{}',
+        status: 'pending',
+        createdAt: '2026-03-19T00:00:00.000Z',
+      },
+      {
+        approvalId: 'cmd-approval-1',
+        requestId: 'request-2',
+        conversationKey: 'qqbot:group:approval-demo',
+        threadId: 'thread-1',
+        turnId: 'turn-2',
+        itemId: 'item-2',
+        kind: 'commandExecution',
+        payloadJson: '{}',
+        status: 'pending',
+        createdAt: '2026-03-19T00:00:01.000Z',
+      },
+    ],
+  };
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  await runtime.handleIncoming(buildMessage('qqbot:group:approval-demo', '/approveall on'), sink);
+  await runtime.handleIncoming(buildMessage('qqbot:group:approval-demo', '/approveall'), sink);
+  await runtime.handleIncoming(buildMessage('qqbot:group:approval-demo', '/approveall off'), sink);
+
+  assert.deepEqual(core.respondApprovalCalls, [
+    {
+      approvalId: 'perm-approval-1',
+      decision: 'accept',
+    },
+  ]);
+  assert.match(messages[0].text, /Auto-approve permissions enabled/);
+  assert.match(messages[1].text, /is ON/);
+  assert.match(messages[2].text, /disabled/);
+});
+
 test('approve supports latest and numeric index tokens', async () => {
   const core = new MockCoreClient();
   core.statusResponse = {
@@ -1039,6 +1090,45 @@ test('approval request text advertises short approval tokens', async () => {
   assert.match(approvalMessage.text, /回复“同意”或“拒绝”即可/);
   assert.match(approvalMessage.text, /同意 1/);
   assert.match(approvalMessage.text, /同意 approval-ver/);
+});
+
+test('permission approvals are auto-approved when conversation setting is enabled', async () => {
+  const core = new MockCoreClient();
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  runtime.attachHost({
+    resolveSinkForConversation() {
+      return sink;
+    },
+    listConversationChannels() {
+      return [];
+    },
+  });
+
+  await runtime.handleIncoming(buildMessage('qqbot:group:auto-approval-demo', '/approveall on'), sink);
+  core.respondApprovalCalls = [];
+
+  await (runtime as any).handleApproval({
+    eventId: 'evt-1',
+    approvalId: 'permission-approval-1',
+    conversationKey: 'qqbot:group:auto-approval-demo',
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    kind: 'permissions',
+    reason: 'Need network',
+    summary: 'Permission approval requested',
+    availableDecisions: ['accept', 'decline'],
+    payloadJson: JSON.stringify({ permissions: { network: true } }),
+  });
+
+  assert.deepEqual(core.respondApprovalCalls, [
+    {
+      approvalId: 'permission-approval-1',
+      decision: 'accept',
+    },
+  ]);
+  assert.match(messages.at(-1)?.text ?? '', /Auto-approved permission request/);
 });
 
 test('natural language approve command resolves the only pending approval', async () => {
@@ -1163,8 +1253,10 @@ function buildConfig(backendKind: QodexConfig['backend']['kind'] = 'codex'): Qod
       coreUrl: 'ws://127.0.0.1:7820/ws',
       requestTimeoutMs: 30_000,
       streamFlushMs: 1_200,
+      autoApprovePermissions: false,
     },
     logging: {
+      rust: 'fatal',
       node: 'fatal',
     },
     backend: {
@@ -1173,10 +1265,24 @@ function buildConfig(backendKind: QodexConfig['backend']['kind'] = 'codex'): Qod
     },
     codex: {
       url: 'ws://127.0.0.1:8765',
+      model: undefined,
+      modelProvider: undefined,
+      approvalPolicy: 'on-request',
+      sandbox: 'workspace-write',
+      experimentalApi: false,
+      serviceName: 'Qodex',
       defaultWorkspace: '/tmp/qodex',
+      allowedWorkspaces: ['/tmp/qodex'],
+      requestTimeoutMs: 30_000,
     },
     opencode: {
       url: 'http://127.0.0.1:4096',
+      model: undefined,
+      modelProvider: undefined,
+      approvalPolicy: 'on-request',
+      sandbox: 'workspace-write',
+      serviceName: 'Qodex',
+      requestTimeoutMs: 30_000,
     },
     channels: [],
   };

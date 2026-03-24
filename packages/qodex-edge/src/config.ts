@@ -27,6 +27,7 @@ export interface QodexConfig {
     coreAuthToken?: string;
     requestTimeoutMs: number;
     streamFlushMs: number;
+    autoApprovePermissions: boolean;
   };
   logging: {
     rust: string;
@@ -80,6 +81,10 @@ export async function loadConfig(configPath = './qodex.toml'): Promise<QodexConf
         readNumber(parsed.edge?.request_timeout_ms) ?? ConfigLoaderDefaults['edge.requestTimeoutMs'],
       streamFlushMs:
         parsed.edge?.stream_flush_ms ?? ConfigLoaderDefaults['edge.streamFlushMs'],
+      autoApprovePermissions:
+        readBoolean(parsed.edge?.auto_approve_permissions)
+        ?? readBoolean(parsed.edge?.autoApprovePermissions)
+        ?? ConfigLoaderDefaults['edge.autoApprovePermissions'],
     },
     logging: {
       rust: parsed.logging?.rust ?? ConfigLoaderDefaults['logging.rust'],

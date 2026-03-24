@@ -452,6 +452,12 @@ mod tests {
         );
         assert_eq!(
             contract_defaults
+                .get("edge.autoApprovePermissions")
+                .and_then(Value::as_bool),
+            Some(defaults::DEFAULT_AUTO_APPROVE_PERMISSIONS)
+        );
+        assert_eq!(
+            contract_defaults
                 .get("logging.rust")
                 .and_then(Value::as_str),
             Some(defaults::DEFAULT_RUST_LOG_FILTER)

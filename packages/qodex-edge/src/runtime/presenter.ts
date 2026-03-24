@@ -104,6 +104,37 @@ export class RuntimeEventPresenter {
   }
 
   async handleApproval(event: ApprovalRequestedEvent): Promise<void> {
+    if (
+      event.kind === 'permissions'
+      && this.deps.sessionState.isAutoApprovePermissionsEnabled(
+        event.conversationKey,
+        this.deps.config.edge.autoApprovePermissions,
+      )
+    ) {
+      try {
+        const response = await this.deps.core.respondApproval({
+          approvalId: event.approvalId,
+          decision: 'accept',
+        });
+        const sink = this.deps.resolveSink(event.conversationKey);
+        if (sink) {
+          await sink.sendText({
+            conversationKey: event.conversationKey,
+            kind: 'system',
+            text: `Auto-approved permission request: ${response.approvalId}`,
+          });
+        }
+        await this.ackDeliveryIfPresent(event.eventId);
+        this.deps.sessionState.pruneIdleState();
+        return;
+      } catch (error) {
+        this.deps.logger.warn(
+          { approvalId: event.approvalId, conversationKey: event.conversationKey, error },
+          'failed to auto-approve permission request',
+        );
+      }
+    }
+
     const sink = this.deps.resolveSink(event.conversationKey);
     if (!sink) {
       this.deps.logger.warn({ event }, 'approval requested for conversation without sink');

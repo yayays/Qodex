@@ -73,7 +73,7 @@ async function main(): Promise<void> {
       const codexChild = startChild(
         'codex',
         'codex',
-        ['app-server', '--listen', config.codex.url],
+        ['app-server', '--listen', config.codex.url, '--full-auto'],
         { cwd: process.cwd() },
       );
       children.push(codexChild);

@@ -262,8 +262,10 @@ function buildConfig(): QodexConfig {
       coreUrl: 'ws://127.0.0.1:7820/ws',
       requestTimeoutMs: 30_000,
       streamFlushMs: 1_200,
+      autoApprovePermissions: false,
     },
     logging: {
+      rust: 'fatal',
       node: 'fatal',
     },
     backend: {
@@ -272,10 +274,24 @@ function buildConfig(): QodexConfig {
     },
     codex: {
       url: 'ws://127.0.0.1:8765',
+      model: undefined,
+      modelProvider: undefined,
+      approvalPolicy: 'on-request',
+      sandbox: 'workspace-write',
+      experimentalApi: false,
+      serviceName: 'Qodex',
       defaultWorkspace: '/tmp/qodex',
+      allowedWorkspaces: ['/tmp/qodex'],
+      requestTimeoutMs: 30_000,
     },
     opencode: {
       url: 'http://127.0.0.1:4096',
+      model: undefined,
+      modelProvider: undefined,
+      approvalPolicy: 'on-request',
+      sandbox: 'workspace-write',
+      serviceName: 'Qodex',
+      requestTimeoutMs: 30_000,
     },
     channels: [
       {

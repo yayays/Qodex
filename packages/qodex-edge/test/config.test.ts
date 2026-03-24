@@ -58,6 +58,7 @@ test('loadConfig reads backend kind, model defaults, and shared default workspac
   assert.equal(config.opencode.serviceName, 'Qodex');
   assert.equal(config.opencode.requestTimeoutMs, 30_000);
   assert.equal(config.edge.requestTimeoutMs, 30_000);
+  assert.equal(config.edge.autoApprovePermissions, false);
   assert.equal(config.edge.coreAuthToken, undefined);
   assert.equal((config.channels[0]?.config.backend as { kind?: string } | undefined)?.kind, 'opencode');
 });
@@ -91,6 +92,7 @@ test('loadConfig parses aligned codex/opencode/edge fields from config', async (
       'core_auth_token = "edge-token"',
       'request_timeout_ms = 41000',
       'stream_flush_ms = 900',
+      'auto_approve_permissions = true',
     ].join('\n'),
     'utf8',
   );
@@ -111,4 +113,5 @@ test('loadConfig parses aligned codex/opencode/edge fields from config', async (
   assert.equal(config.edge.coreAuthToken, 'edge-token');
   assert.equal(config.edge.requestTimeoutMs, 41_000);
   assert.equal(config.edge.streamFlushMs, 900);
+  assert.equal(config.edge.autoApprovePermissions, true);
 });

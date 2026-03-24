@@ -53,6 +53,9 @@ request_timeout_ms = 30000
 core_url = "ws://127.0.0.1:7820/ws"
 request_timeout_ms = 30000
 stream_flush_ms = 1200
+# Optional. When true, Qodex auto-accepts future permission approval requests
+# for each conversation unless `/approveall off` is used in that conversation.
+# auto_approve_permissions = false
 # Optional explicit override. If omitted, `server.auth_token` is reused.
 # core_auth_token = "CHANGE_ME"
 
@@ -91,8 +94,10 @@ plugin = "builtin:console"
 #
 # [channels.qq.config.voice]
 # enabled = true
-# # When false, every voice command requires an explicit "确认" reply.
-# auto_send = false
+# # Optional. If omitted, Qodex defaults to auto-send when `voice.normalize`
+# # is configured and enabled; otherwise it stays in confirm-first mode.
+# # Set false to force every voice command to require an explicit "确认" reply.
+# auto_send = true
 # confirmation_ttl_ms = 300000
 # # If the STT provider returns a numeric confidence below this threshold,
 # # confirmation is required. Providers that do not return confidence simply

@@ -18,6 +18,7 @@ pub mod defaults {
     pub const DEFAULT_SERVICE_NAME: &str = "Qodex";
     pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
     pub const DEFAULT_STREAM_FLUSH_MS: u64 = 1200;
+    pub const DEFAULT_AUTO_APPROVE_PERMISSIONS: bool = false;
     pub const DEFAULT_RUST_LOG_FILTER: &str = "info,qodex_core=debug";
     pub const DEFAULT_NODE_LOG_FILTER: &str = "info";
 }
@@ -270,6 +271,7 @@ pub struct EdgeConfig {
     pub core_auth_token: Option<String>,
     pub request_timeout_ms: u64,
     pub stream_flush_ms: u64,
+    pub auto_approve_permissions: bool,
 }
 
 impl Default for EdgeConfig {
@@ -279,6 +281,7 @@ impl Default for EdgeConfig {
             core_auth_token: None,
             request_timeout_ms: defaults::DEFAULT_REQUEST_TIMEOUT_MS,
             stream_flush_ms: defaults::DEFAULT_STREAM_FLUSH_MS,
+            auto_approve_permissions: defaults::DEFAULT_AUTO_APPROVE_PERMISSIONS,
         }
     }
 }
@@ -452,6 +455,7 @@ request_timeout_ms = 47000
 core_auth_token = "edge-token"
 request_timeout_ms = 41000
 stream_flush_ms = 900
+auto_approve_permissions = true
 "#,
         )
         .expect("config written");
@@ -470,5 +474,6 @@ stream_flush_ms = 900
         assert_eq!(config.edge.core_auth_token.as_deref(), Some("edge-token"));
         assert_eq!(config.edge.request_timeout_ms, 41_000);
         assert_eq!(config.edge.stream_flush_ms, 900);
+        assert!(config.edge.auto_approve_permissions);
     }
 }

@@ -186,8 +186,7 @@ pub(super) fn parse_backend_server_request(
             }))
         }
         "applyPatchApproval" => {
-            let payload: LegacyApplyPatchApprovalParams =
-                serde_json::from_value(params.clone())?;
+            let payload: LegacyApplyPatchApprovalParams = serde_json::from_value(params.clone())?;
             ParsedBackendEvent::ServerRequest(BackendServerRequest::Approval(ApprovalRequestSeed {
                 request_id: id,
                 approval: ApprovalSeed {

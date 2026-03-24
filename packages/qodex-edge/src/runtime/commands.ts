@@ -353,6 +353,58 @@ export async function handleRuntimeCommand(
       await deps.resolveApproval(conversationKey, approvalId, decision, sink);
       return;
     }
+    case '/approveall': {
+      const mode = (rest[0] ?? '').trim().toLowerCase();
+      if (!mode) {
+        const enabled = deps.sessionState.isAutoApprovePermissionsEnabled(
+          conversationKey,
+          deps.config.edge.autoApprovePermissions,
+        );
+        await sink.sendText({
+          conversationKey,
+          kind: 'system',
+          text: enabled
+            ? 'Auto-approve permissions is ON for this conversation.'
+            : 'Auto-approve permissions is OFF for this conversation.',
+        });
+        return;
+      }
+      if (mode !== 'on' && mode !== 'off') {
+        await sink.sendText({
+          conversationKey,
+          kind: 'error',
+          text: 'Usage: /approveall [on|off]',
+        });
+        return;
+      }
+      const enabled = mode === 'on';
+      deps.sessionState.setAutoApprovePermissions(conversationKey, enabled);
+
+      if (!enabled) {
+        await sink.sendText({
+          conversationKey,
+          kind: 'system',
+          text: 'Auto-approve permissions disabled for this conversation.',
+        });
+        return;
+      }
+
+      const result = await resolveRuntimeApprovalsByKind(
+        deps.core,
+        conversationKey,
+        'permissions',
+        'accept',
+      );
+      await sink.sendText({
+        conversationKey,
+        kind: 'system',
+        text:
+          result.resolvedCount > 0
+            ? `Auto-approve permissions enabled. Approved ${result.resolvedCount} pending permission request(s).`
+            : 'Auto-approve permissions enabled. Future permission requests will be approved automatically.',
+      });
+      return;
+    }
     case '/reject': {
       const approvalId = rest[0];
       await deps.resolveApproval(conversationKey, approvalId, 'decline', sink);
@@ -665,4 +717,21 @@ export async function resolveRuntimeApproval(
     kind: 'system',
     text: `Approval ${response.approvalId} -> ${response.status}`,
   });
+}
+
+async function resolveRuntimeApprovalsByKind(
+  core: CoreClient,
+  conversationKey: string,
+  kind: string,
+  decision: ApprovalDecision,
+): Promise<{ resolvedCount: number }> {
+  const status = await core.status({ conversationKey });
+  const approvals = status.pendingApprovals.filter((approval) => approval.kind === kind);
+  for (const approval of approvals) {
+    await core.respondApproval({
+      approvalId: approval.approvalId,
+      decision,
+    });
+  }
+  return { resolvedCount: approvals.length };
 }

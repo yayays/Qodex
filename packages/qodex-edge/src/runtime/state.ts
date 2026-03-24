@@ -26,6 +26,8 @@ interface ActiveTurnState {
   hasOutput: boolean;
 }
 
+type AutoApproveOverride = boolean;
+
 export interface SinkResolver {
   resolveSinkForConversation(conversation: ConversationRef): OutboundSink | undefined;
 }
@@ -35,6 +37,7 @@ export class RuntimeSessionState {
   readonly streamState = new Map<string, StreamState>();
   readonly activeTurns = new Map<string, ActiveTurnState>();
   readonly failedTurns = new Map<string, number>();
+  readonly autoApprovePermissions = new Map<string, AutoApproveOverride>();
   lastPrunedAt = 0;
 
   rememberSink(conversationKey: string, sink: OutboundSink): void {
@@ -120,6 +123,17 @@ export class RuntimeSessionState {
     }
   }
 
+  setAutoApprovePermissions(conversationKey: string, enabled: boolean): void {
+    this.autoApprovePermissions.set(conversationKey, enabled);
+  }
+
+  isAutoApprovePermissionsEnabled(
+    conversationKey: string,
+    defaultEnabled: boolean,
+  ): boolean {
+    return this.autoApprovePermissions.get(conversationKey) ?? defaultEnabled;
+  }
+
   registerActiveTurn(conversationKey: string, turnId: string): void {
     const now = Date.now();
     this.activeTurns.set(`${conversationKey}:${turnId}`, {
@@ -195,6 +209,12 @@ export class RuntimeSessionState {
         && now - sink.lastActivityAt >= RUNTIME_IDLE_TTL_MS
       ) {
         this.sinks.delete(conversationKey);
+      }
+    }
+
+    for (const conversationKey of this.autoApprovePermissions.keys()) {
+      if (!activeConversations.has(conversationKey) && !this.sinks.has(conversationKey)) {
+        this.autoApprovePermissions.delete(conversationKey);
       }
     }
   }

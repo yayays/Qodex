@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { extname, join, resolve } from 'node:path';
 import type { FileInput } from '../../../core-protocol.js';
+import type { ChannelInboundImage } from '../../../plugin-contract.js';
 import type { WechatCompatInboundEvent } from '../types.js';
 import type { CreateWechatCompatAdapterParams, WechatCompatAdapter } from '../types.js';
 
@@ -23,6 +25,8 @@ interface TencentAdapterConfig {
 const DEFAULT_API_BASE_URL = 'https://ilinkai.weixin.qq.com';
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_LOGIN_WAIT_TIMEOUT_MS = 480_000;
+const UNSUPPORTED_WECHAT_IMAGE_URL_ERROR =
+  'unsupported WeChat image URL format; edge could not resolve a downloadable URL';
 const TEXT_ITEM_TYPE = 1;
 const VOICE_ITEM_TYPE = 3;
 const FILE_ITEM_TYPE = 4;
@@ -76,7 +80,13 @@ export async function createAdapter(
           loginState: 'connected',
           accountId: state.session.accountId,
         });
-        state.monitorPromise = runMonitorLoop(params, state, fileStore).catch((error) => {
+        state.monitorPromise = runMonitorLoop(
+          params,
+          state,
+          fileStore,
+          config.stateDir,
+          config.requestTimeoutMs,
+        ).catch((error) => {
           params.host.setConnection({
             connected: false,
             loginState: 'error',
@@ -125,7 +135,13 @@ export async function createAdapter(
             loginState: 'connected',
             accountId: state.session.accountId,
           });
-          state.monitorPromise = runMonitorLoop(params, state, fileStore).catch((error) => {
+          state.monitorPromise = runMonitorLoop(
+            params,
+            state,
+            fileStore,
+            config.stateDir,
+            config.requestTimeoutMs,
+          ).catch((error) => {
             params.host.setConnection({
               connected: false,
               loginState: 'error',
@@ -199,6 +215,8 @@ async function runMonitorLoop(
     contextTokens: Map<string, string>;
   },
   fileStore: ReturnType<typeof createFileStore>,
+  stateDir: string,
+  requestTimeoutMs: number,
 ): Promise<void> {
   while (!state.stopped) {
     let response: {
@@ -235,8 +253,20 @@ async function runMonitorLoop(
     }
 
     for (const message of response.msgs ?? []) {
-      const inbound = toInboundEvent(message);
+      const inbound = await toInboundEvent(
+        message,
+        state.session.baseUrl,
+        state.session.token,
+        stateDir,
+        requestTimeoutMs,
+      );
       if (!inbound) {
+        params.log.info(
+          {
+            message: summarizeInboundMessage(message),
+          },
+          'wechat compat skipped unsupported inbound message',
+        );
         continue;
       }
       const contextToken = readString(message.context_token);
@@ -253,12 +283,25 @@ async function runMonitorLoop(
   }
 }
 
-function toInboundEvent(message: Record<string, unknown>): WechatCompatInboundEvent | undefined {
+async function toInboundEvent(
+  message: Record<string, unknown>,
+  baseUrl: string,
+  token: string | undefined,
+  stateDir: string,
+  requestTimeoutMs: number,
+): Promise<WechatCompatInboundEvent | undefined> {
   const fromUserId = readString(message.from_user_id);
   const groupId = readString(message.group_id);
   const text = extractInboundText(message.item_list);
-  const files = extractInboundFiles(message.item_list);
-  if (!fromUserId || (!text && files.length === 0)) {
+  const images = await extractInboundImages(
+    message.item_list,
+    baseUrl,
+    token,
+    stateDir,
+    requestTimeoutMs,
+  );
+  const files = extractInboundFiles(message.item_list, baseUrl);
+  if (!fromUserId || (!text && images.length === 0 && files.length === 0)) {
     return undefined;
   }
 
@@ -269,6 +312,7 @@ function toInboundEvent(message: Record<string, unknown>): WechatCompatInboundEv
     senderName: undefined,
     text,
     replyToId: undefined,
+    ...(images.length > 0 ? { images } : {}),
     ...(files.length > 0 ? { files } : {}),
   };
 }
@@ -299,6 +343,7 @@ function extractInboundText(itemListValue: unknown): string {
 
 function extractInboundFiles(
   itemListValue: unknown,
+  baseUrl: string,
 ): FileInput[] {
   if (!Array.isArray(itemListValue)) {
     return [];
@@ -309,7 +354,7 @@ function extractInboundFiles(
     if (!isRecord(item)) {
       continue;
     }
-    const file = readInboundFile(item);
+    const file = readInboundFile(item, baseUrl);
     if (file) {
       files.push(file);
     }
@@ -317,19 +362,55 @@ function extractInboundFiles(
   return files;
 }
 
-function readInboundFile(item: Record<string, unknown>): FileInput | undefined {
-  if (item.type !== FILE_ITEM_TYPE || !isRecord(item.file_item)) {
+function extractInboundImages(
+  itemListValue: unknown,
+  baseUrl: string,
+  token: string | undefined,
+  stateDir: string,
+  requestTimeoutMs: number,
+): Promise<ChannelInboundImage[]> {
+  if (!Array.isArray(itemListValue)) {
+    return Promise.resolve([]);
+  }
+
+  return Promise.all(
+    itemListValue.map(async (item) => {
+      if (!isRecord(item)) {
+        return undefined;
+      }
+      return readInboundImage(item, baseUrl, token, stateDir, requestTimeoutMs);
+    }),
+  ).then((images) =>
+    images.filter((image): image is ChannelInboundImage => Boolean(image)),
+  );
+}
+
+function readInboundFile(
+  item: Record<string, unknown>,
+  baseUrl: string,
+): FileInput | undefined {
+  if (isImageLikeAttachmentItem(item)) {
     return undefined;
   }
 
-  const fileUrl = readString(item.file_item.file_url) ?? readString(item.file_item.url);
-  const localPath = readString(item.file_item.local_path) ?? readString(item.file_item.path);
-  const filename = readString(item.file_item.file_name) ?? readString(item.file_item.filename);
-  const mimeType = readString(item.file_item.mime_type) ?? readString(item.file_item.content_type);
-  const size = readNumber(item.file_item.file_size) ?? readNumber(item.file_item.size);
-  const platformFileId = readString(item.file_item.file_id) ?? readString(item.file_item.id);
+  const payload = resolveAttachmentPayload(item);
+  if (!payload) {
+    return undefined;
+  }
+
+  const fileUrl = readAttachmentUrl(payload, baseUrl);
+  const localPath = readString(payload.local_path) ?? readString(payload.path);
+  const filename =
+    readString(payload.file_name) ?? readString(payload.filename) ?? readString(payload.name);
+  const mimeType =
+    readString(payload.mime_type) ?? readString(payload.content_type) ?? readString(payload.mime);
+  const size = readNumber(payload.file_size) ?? readNumber(payload.size);
+  const platformFileId = readString(payload.file_id) ?? readString(payload.id);
 
   if (!fileUrl && !localPath && !platformFileId) {
+    return undefined;
+  }
+  if (fileUrl && looksLikeImageFile(fileUrl, filename, mimeType)) {
     return undefined;
   }
 
@@ -342,6 +423,273 @@ function readInboundFile(item: Record<string, unknown>): FileInput | undefined {
     ...(typeof size === 'number' ? { size } : {}),
     ...(platformFileId ? { platformFileId } : {}),
   };
+}
+
+function readInboundImage(
+  item: Record<string, unknown>,
+  baseUrl: string,
+  token: string | undefined,
+  stateDir: string,
+  requestTimeoutMs: number,
+): Promise<ChannelInboundImage | undefined> {
+  const payload = resolveAttachmentPayload(item);
+  if (!payload) {
+    return Promise.resolve(undefined);
+  }
+
+  const rawUrl = readRawAttachmentUrl(payload);
+  const fileUrl = readAttachmentUrl(payload, baseUrl);
+  const filename =
+    readString(payload.file_name) ?? readString(payload.filename) ?? readString(payload.name);
+  const mimeType =
+    readString(payload.mime_type) ?? readString(payload.content_type) ?? readString(payload.mime);
+  if (!isImageLikeAttachmentItem(item) && !looksLikeImageFile(fileUrl ?? rawUrl ?? '', filename, mimeType)) {
+    return Promise.resolve(undefined);
+  }
+
+  const size = readNumber(payload.file_size) ?? readNumber(payload.size);
+  if (!fileUrl) {
+    return Promise.resolve({
+      url: rawUrl ?? 'wechat-inbound-image',
+      ...(filename ? { filename } : {}),
+      ...(mimeType ? { mimeType } : {}),
+      ...(typeof size === 'number' ? { size } : {}),
+      downloadError: rawUrl ? UNSUPPORTED_WECHAT_IMAGE_URL_ERROR : 'missing WeChat image URL',
+    });
+  }
+
+  return maybeDownloadInboundImage(fileUrl, baseUrl, token, stateDir, filename, requestTimeoutMs)
+    .then((localPath) => ({
+      url: fileUrl,
+      ...(filename ? { filename } : {}),
+      ...(mimeType ? { mimeType } : {}),
+      ...(typeof size === 'number' ? { size } : {}),
+      ...(localPath ? { localPath } : {}),
+    }))
+    .catch((error) => ({
+      url: fileUrl,
+      ...(filename ? { filename } : {}),
+      ...(mimeType ? { mimeType } : {}),
+      ...(typeof size === 'number' ? { size } : {}),
+      downloadError: formatError(error),
+    }));
+}
+
+function resolveAttachmentPayload(item: Record<string, unknown>): Record<string, unknown> | undefined {
+  const candidates = [
+    item.file_item,
+    item.image_item,
+    item.img_item,
+    item.pic_item,
+    item,
+  ];
+  for (const candidate of candidates) {
+    if (!isRecord(candidate)) {
+      continue;
+    }
+    if (readRawAttachmentUrl(candidate) || readString(candidate.local_path) || readString(candidate.path)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function isImageLikeAttachmentItem(item: Record<string, unknown>): boolean {
+  return item.type === 2 || isRecord(item.image_item) || isRecord(item.img_item) || isRecord(item.pic_item);
+}
+
+function readRawAttachmentUrl(payload: Record<string, unknown>): string | undefined {
+  return readString(payload.download_url)
+    ?? readString(payload.file_url)
+    ?? readString(payload.url)
+    ?? readString(payload.image_url)
+    ?? readString(payload.img_url)
+    ?? readString(payload.pic_url);
+}
+
+function readAttachmentUrl(
+  payload: Record<string, unknown>,
+  baseUrl: string | undefined,
+): string | undefined {
+  const candidates = [
+    readString(payload.download_url),
+    readString(payload.file_url),
+    readString(payload.url),
+    readString(payload.image_url),
+    readString(payload.img_url),
+    readString(payload.pic_url),
+  ];
+
+  for (const candidate of candidates) {
+    const resolved = resolveAttachmentUrl(candidate, baseUrl);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  return undefined;
+}
+
+function resolveAttachmentUrl(
+  value: string | undefined,
+  baseUrl: string | undefined,
+): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'file:'
+      ? parsed.toString()
+      : undefined;
+  } catch {
+    if (looksLikeOpaqueAttachmentToken(value)) {
+      return undefined;
+    }
+    if (!baseUrl) {
+      return undefined;
+    }
+    try {
+      const parsed = new URL(value, ensureTrailingSlash(baseUrl));
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'file:'
+        ? parsed.toString()
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+function looksLikeOpaqueAttachmentToken(value: string): boolean {
+  if (!value || value.startsWith('/') || value.startsWith('./') || value.startsWith('../')) {
+    return false;
+  }
+  if (
+    value.includes('/')
+    || value.includes('?')
+    || value.includes('#')
+    || value.includes('.')
+    || value.includes('=')
+    || value.includes('&')
+  ) {
+    return false;
+  }
+  return value.length >= 24;
+}
+
+function summarizeInboundMessage(message: Record<string, unknown>): Record<string, unknown> {
+  return {
+    from_user_id: readString(message.from_user_id),
+    group_id: readString(message.group_id),
+    message_type: readNumber(message.message_type),
+    item_count: Array.isArray(message.item_list) ? message.item_list.length : 0,
+    item_summaries: Array.isArray(message.item_list)
+      ? message.item_list.map((item) => summarizeInboundItem(item)).slice(0, 8)
+      : [],
+    top_level_keys: Object.keys(message).slice(0, 20),
+  };
+}
+
+function summarizeInboundItem(item: unknown): Record<string, unknown> {
+  if (!isRecord(item)) {
+    return {
+      raw_type: typeof item,
+    };
+  }
+
+  return {
+    type: readNumber(item.type),
+    keys: Object.keys(item).slice(0, 20),
+    attachment_keys: [
+      nestedKeys(item.file_item),
+      nestedKeys(item.image_item),
+      nestedKeys(item.img_item),
+      nestedKeys(item.pic_item),
+    ].filter((value) => value.length > 0),
+    file_url: previewValue(readString(isRecord(item.file_item) ? item.file_item.file_url : undefined)),
+    url: previewValue(readString(isRecord(item.file_item) ? item.file_item.url : item.url)),
+    image_url: previewValue(
+      readString(isRecord(item.image_item) ? item.image_item.image_url : item.image_url),
+    ),
+    download_url: previewValue(
+      readString(isRecord(item.image_item) ? item.image_item.download_url : item.download_url),
+    ),
+  };
+}
+
+function nestedKeys(value: unknown): string[] {
+  return isRecord(value) ? Object.keys(value).slice(0, 20) : [];
+}
+
+function previewValue(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  return value.length > 80 ? `${value.slice(0, 80)}...` : value;
+}
+
+async function maybeDownloadInboundImage(
+  fileUrl: string,
+  baseUrl: string,
+  token: string | undefined,
+  stateDir: string,
+  filename: string | undefined,
+  requestTimeoutMs: number,
+): Promise<string | undefined> {
+  if (!token) {
+    return undefined;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(fileUrl);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return undefined;
+  }
+  try {
+    if (parsed.origin !== new URL(baseUrl).origin) {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+
+  const response = await fetch(parsed, {
+    method: 'GET',
+    signal: AbortSignal.timeout(requestTimeoutMs),
+    headers: {
+      AuthorizationType: 'ilink_bot_token',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`failed to download inbound image: ${response.status}`);
+  }
+
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const targetDir = resolve(stateDir, 'inbound-media');
+  await mkdir(targetDir, { recursive: true });
+  const extension = extname(filename ?? parsed.pathname) || '.bin';
+  const targetPath = join(targetDir, `${Date.now()}-${randomUUID()}${extension}`);
+  await writeFile(targetPath, bytes);
+  return targetPath;
+}
+
+function looksLikeImageFile(
+  fileUrl: string,
+  filename: string | undefined,
+  mimeType: string | undefined,
+): boolean {
+  if (mimeType?.toLowerCase().startsWith('image/')) {
+    return true;
+  }
+
+  const candidate = (filename ?? fileUrl).toLowerCase();
+  return /\.(png|jpe?g|gif|webp|bmp|svg|heic|heif|tiff?)($|[?#])/.test(candidate);
 }
 
 async function startQrLogin(baseUrl: string, timeoutMs: number) {

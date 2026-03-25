@@ -92,11 +92,20 @@ export class RuntimeInboundHandler {
         return;
       }
 
+      const inboundImageFailureLines = formatInboundImageFailureLines(message.images);
+      if (inboundImageFailureLines.length > 0) {
+        await sink.sendText({
+          conversationKey,
+          kind: 'system',
+          text: inboundImageFailureLines.join('\n'),
+        });
+      }
+
       const response = await this.deps.core.sendMessage({
         conversation: message.conversation,
         sender: message.sender,
         text: message.text,
-        images: message.images,
+        images: filterForwardableImages(message.images),
         files: message.files,
         workspace: message.workspace,
         backendKind: this.deps.resolveBackendKind(message),
@@ -135,9 +144,20 @@ export class RuntimeInboundHandler {
 
   private async handleImageOnlyMessage(message: PlatformMessage, sink: OutboundSink): Promise<void> {
     const conversationKey = message.conversation.conversationKey;
+    const inboundImageFailureLines = formatInboundImageFailureLines(message.images);
+    const forwardableImages = filterForwardableImages(message.images);
+    if (!forwardableImages?.length) {
+      await sink.sendText({
+        conversationKey,
+        kind: 'error',
+        text: inboundImageFailureLines.join('\n') || 'Failed to prepare image: unknown error',
+      });
+      return;
+    }
+
     const response = await this.deps.core.saveFiles({
       conversation: message.conversation,
-      files: imageInputsToFiles(message.images ?? []),
+      files: imageInputsToFiles(forwardableImages),
       workspace: message.workspace,
       backendKind: this.deps.resolveBackendKind(message),
     });
@@ -161,12 +181,15 @@ export class RuntimeInboundHandler {
     const pathLines = savedImages
       .map((file) => `- ${file.savedPath}`)
       .join('\n');
-    const failureLines = response.savedFiles
+    const failureLines = [
+      ...inboundImageFailureLines,
+      ...response.savedFiles
       .filter((file) => file.status === 'failed')
       .map((file) => {
         const label = file.filename ?? file.url ?? '(unknown image)';
         return `Failed to save image ${label}: ${file.error ?? 'unknown error'}`;
-      });
+      }),
+    ];
     const lines = [
       '图片已保存。请回复怎么处理这张图片，我会再发送给 Codex/OpenCode。',
       pathLines,
@@ -213,13 +236,49 @@ function shouldInterceptImageOnlyMessage(message: PlatformMessage): boolean {
 }
 
 function imageInputsToFiles(images: NonNullable<PlatformMessage['images']>): FileInput[] {
-  return images.map((image) => ({
-    source: 'remote',
-    url: image.url,
-    ...(image.filename ? { filename: image.filename } : {}),
-    ...(image.mimeType ? { mimeType: image.mimeType } : {}),
-    ...(typeof image.size === 'number' ? { size: image.size } : {}),
-  }));
+  return images.map((image) => {
+    if (image.localPath) {
+      return {
+        source: 'downloaded' as const,
+        localPath: image.localPath,
+        ...(image.filename ? { filename: image.filename } : {}),
+        ...(image.mimeType ? { mimeType: image.mimeType } : {}),
+        ...(typeof image.size === 'number' ? { size: image.size } : {}),
+      };
+    }
+
+    return {
+      source: 'remote' as const,
+      url: image.url,
+      ...(image.filename ? { filename: image.filename } : {}),
+      ...(image.mimeType ? { mimeType: image.mimeType } : {}),
+      ...(typeof image.size === 'number' ? { size: image.size } : {}),
+    };
+  });
+}
+
+function filterForwardableImages(
+  images: PlatformMessage['images'],
+): PlatformMessage['images'] | undefined {
+  if (!images?.length) {
+    return undefined;
+  }
+  const filtered = images.filter((image) => image.localPath || (!image.downloadError && image.url));
+  return filtered.length > 0 ? filtered : undefined;
+}
+
+function formatInboundImageFailureLines(
+  images: PlatformMessage['images'],
+): string[] {
+  if (!images?.length) {
+    return [];
+  }
+  return images
+    .filter((image) => image.downloadError)
+    .map((image) => {
+      const label = image.filename ?? image.url ?? '(unknown image)';
+      return `Failed to prepare image ${label}: ${image.downloadError ?? 'unknown error'}`;
+    });
 }
 
 function looksLikePendingImageInstruction(text: string): boolean {

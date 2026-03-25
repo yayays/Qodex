@@ -22,6 +22,8 @@ export interface ChannelInboundImage {
   width?: number;
   height?: number;
   size?: number;
+  localPath?: string;
+  downloadError?: string;
 }
 
 export interface ChannelInboundMessage {

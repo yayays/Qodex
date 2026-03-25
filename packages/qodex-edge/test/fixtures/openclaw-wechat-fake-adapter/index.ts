@@ -46,6 +46,15 @@ export function createAdapter(params: {
       senderName?: string;
       text: string;
       replyToId?: string;
+      images?: Array<{
+        url: string;
+        mimeType?: string;
+        filename?: string;
+        width?: number;
+        height?: number;
+        size?: number;
+        downloadError?: string;
+      }>;
       files?: Array<{
         source: 'remote' | 'downloaded';
         url?: string;
@@ -90,6 +99,38 @@ export function createAdapter(params: {
           senderName: typeof record.sender_name === 'string' ? record.sender_name : undefined,
           text: String(record.text ?? ''),
           replyToId: typeof record.reply_to_id === 'string' ? record.reply_to_id : undefined,
+          images: Array.isArray(record.images)
+            ? record.images.map((image) => {
+              const typedImage = image as Record<string, unknown>;
+              const url = typeof typedImage.url === 'string' ? typedImage.url : '';
+              const mimeType =
+                typeof typedImage.mime_type === 'string'
+                  ? typedImage.mime_type
+                  : typeof typedImage.mimeType === 'string'
+                    ? typedImage.mimeType
+                    : undefined;
+              const filename =
+                typeof typedImage.filename === 'string' ? typedImage.filename : undefined;
+              const width = typeof typedImage.width === 'number' ? typedImage.width : undefined;
+              const height = typeof typedImage.height === 'number' ? typedImage.height : undefined;
+              const size = typeof typedImage.size === 'number' ? typedImage.size : undefined;
+              const downloadError =
+                typeof typedImage.download_error === 'string'
+                  ? typedImage.download_error
+                  : typeof typedImage.downloadError === 'string'
+                    ? typedImage.downloadError
+                    : undefined;
+              return {
+                url,
+                ...(mimeType ? { mimeType } : {}),
+                ...(filename ? { filename } : {}),
+                ...(typeof width === 'number' ? { width } : {}),
+                ...(typeof height === 'number' ? { height } : {}),
+                ...(typeof size === 'number' ? { size } : {}),
+                ...(downloadError ? { downloadError } : {}),
+              };
+            })
+            : undefined,
           files: Array.isArray(record.files)
             ? record.files.map((file) => {
               const typedFile = file as Record<string, unknown>;

@@ -1,5 +1,5 @@
 import type { FileInput } from '../../core-protocol.js';
-import type { ChannelScope, PluginLogger } from '../../plugin-contract.js';
+import type { ChannelInboundImage, ChannelScope, PluginLogger } from '../../plugin-contract.js';
 
 export interface WechatCompatQrCodeEvent {
   value: string;
@@ -22,6 +22,7 @@ export interface WechatCompatInboundEvent {
   senderName?: string;
   text: string;
   replyToId?: string;
+  images?: ChannelInboundImage[];
   files?: FileInput[];
   raw?: unknown;
 }

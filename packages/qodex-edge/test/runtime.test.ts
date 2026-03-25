@@ -926,6 +926,89 @@ test('image-only input is intercepted, saved, and prompts for handling instructi
   assert.match(messages[0].text, /怎么处理/);
 });
 
+test('image-only input prefers local downloaded image paths when available', async () => {
+  const core = new MockCoreClient();
+  core.saveFilesResponse = {
+    conversationKey: 'qqbot:group:image-local-demo',
+    savedFiles: [
+      {
+        filename: 'wechat-image.jpg',
+        savedPath: '/tmp/qodex/uploadfile/2026-03-25/wechat-image.jpg',
+        source: 'downloaded',
+        status: 'saved',
+      },
+    ],
+  };
+  const runtime = createRuntime(core);
+  const { sink } = createSink();
+
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:image-local-demo', '', [
+      {
+        url: 'https://ilinkai.weixin.qq.com/media/image/download?file=abc123',
+        mimeType: 'image/jpeg',
+        filename: 'wechat-image.jpg',
+        localPath: '/tmp/qodex-wechat-image.jpg',
+      } as PlatformMessage['images'][number],
+    ]),
+    sink,
+  );
+
+  assert.equal(core.saveFilesCalls, 1);
+  assert.deepEqual(core.lastSaveFilesParams.files, [
+    {
+      source: 'downloaded',
+      localPath: '/tmp/qodex-wechat-image.jpg',
+      mimeType: 'image/jpeg',
+      filename: 'wechat-image.jpg',
+    },
+  ]);
+});
+
+test('image-only input with download preparation failure replies directly and skips core save', async () => {
+  const core = new MockCoreClient();
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:image-download-error-demo', '', [
+      {
+        url: '3057020100044b30opaque',
+        downloadError: 'unsupported WeChat image URL format',
+      } as PlatformMessage['images'][number],
+    ]),
+    sink,
+  );
+
+  assert.equal(core.saveFilesCalls, 0);
+  assert.equal(core.sendMessageCalls, 0);
+  assert.equal(messages.length, 1);
+  assert.match(messages[0].text, /Failed to prepare image/);
+  assert.match(messages[0].text, /unsupported WeChat image URL format/);
+});
+
+test('text message strips failed inbound images before forwarding to core', async () => {
+  const core = new MockCoreClient();
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:image-filter-demo', '请处理文字，图片先忽略', [
+      {
+        url: '3057020100044b30opaque',
+        downloadError: 'unsupported WeChat image URL format',
+      } as PlatformMessage['images'][number],
+    ]),
+    sink,
+  );
+
+  assert.equal(core.sendMessageCalls, 1);
+  assert.equal(core.lastSendMessageParams.text, '请处理文字，图片先忽略');
+  assert.equal(core.lastSendMessageParams.images, undefined);
+  assert.equal(messages.length, 1);
+  assert.match(messages[0].text, /Failed to prepare image/);
+});
+
 test('next handling reply sends pending image path to backend and clears pending state', async () => {
   const core = new MockCoreClient();
   core.saveFilesResponse = {

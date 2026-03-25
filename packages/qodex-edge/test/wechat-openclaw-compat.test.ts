@@ -146,6 +146,85 @@ test('wechat compat channel forwards inbound file metadata into qodex runtime', 
   await host.stop();
 });
 
+test('wechat compat channel forwards inbound image metadata into qodex runtime images', async () => {
+  resetFakeWechatAdapterState();
+  const runtime = new RecordingRuntime();
+  const host = new QodexChannelHost(
+    runtime as any,
+    createLogger('fatal'),
+    buildConfig({
+      inbound_messages: [
+        {
+          scope: 'c2c',
+          target_id: 'wx-user-image',
+          sender_id: 'wx-user-image',
+          text: '',
+          images: [
+            {
+              url: 'https://cdn.example.com/photo.png',
+              mimeType: 'image/png',
+              filename: 'photo.png',
+              size: 4096,
+            },
+          ],
+        },
+      ],
+    }),
+  );
+
+  await host.startConfiguredChannels();
+
+  assert.equal(runtime.messages.length, 1);
+  assert.deepEqual(runtime.messages[0].images, [
+    {
+      url: 'https://cdn.example.com/photo.png',
+      mimeType: 'image/png',
+      filename: 'photo.png',
+      size: 4096,
+    },
+  ]);
+  assert.equal(runtime.messages[0].files, undefined);
+
+  await host.stop();
+});
+
+test('wechat compat channel preserves inbound image download failures for runtime handling', async () => {
+  resetFakeWechatAdapterState();
+  const runtime = new RecordingRuntime();
+  const host = new QodexChannelHost(
+    runtime as any,
+    createLogger('fatal'),
+    buildConfig({
+      inbound_messages: [
+        {
+          scope: 'c2c',
+          target_id: 'wx-user-image-failed',
+          sender_id: 'wx-user-image-failed',
+          text: '',
+          images: [
+            {
+              url: '3057020100044b30opaque',
+              download_error: 'unsupported WeChat image URL format',
+            },
+          ],
+        },
+      ],
+    }),
+  );
+
+  await host.startConfiguredChannels();
+
+  assert.equal(runtime.messages.length, 1);
+  assert.deepEqual(runtime.messages[0].images, [
+    {
+      url: '3057020100044b30opaque',
+      downloadError: 'unsupported WeChat image URL format',
+    },
+  ]);
+
+  await host.stop();
+});
+
 test('wechat compat channel sends outbound text through the active adapter', async () => {
   resetFakeWechatAdapterState();
   const runtime = new RecordingRuntime();

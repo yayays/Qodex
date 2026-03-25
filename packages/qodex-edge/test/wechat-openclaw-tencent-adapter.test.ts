@@ -306,6 +306,472 @@ test('tencent adapter forwards inbound file metadata when the transport exposes 
   }
 });
 
+test('tencent adapter promotes inbound image file items into image inputs', async () => {
+  const configDir = await mkdtemp(join(tmpdir(), 'qodex-wechat-tencent-image-'));
+  const fetchMock = createFetchMock([
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [
+          {
+            from_user_id: 'wx-user-image',
+            create_time_ms: 1700000000003,
+            context_token: 'ctx-image',
+            item_list: [
+              {
+                type: 4,
+                file_item: {
+                  file_id: 'image-1',
+                  file_name: 'photo.png',
+                  file_url: 'https://cdn.example.com/photo.png',
+                  mime_type: 'image/png',
+                  file_size: 4096,
+                },
+              },
+            ],
+          },
+        ],
+        get_updates_buf: 'sync-image-next',
+      },
+    },
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [],
+        get_updates_buf: 'sync-image-next',
+      },
+    },
+  ]);
+
+  const events = createHostRecorder();
+  const restore = installFetchMock(fetchMock);
+  try {
+    const adapter = await createAdapter({
+      config: {
+        api_base_url: 'https://ilinkai.weixin.qq.com',
+        token: 'saved-token-image',
+        state_dir: './state',
+      },
+      configDir,
+      instanceId: 'wechat',
+      accountId: 'wechat-main',
+      log: silentLogger,
+      abortSignal: new AbortController().signal,
+      host: events.host,
+    });
+
+    await adapter.start();
+    await waitFor(() => events.inbound.length === 1);
+    await adapter.stop?.();
+
+    assert.deepEqual(events.inbound, [
+      {
+        scope: 'c2c',
+        targetId: 'wx-user-image',
+        senderId: 'wx-user-image',
+        senderName: undefined,
+        text: '',
+        replyToId: undefined,
+        images: [
+          {
+            url: 'https://cdn.example.com/photo.png',
+            filename: 'photo.png',
+            mimeType: 'image/png',
+            size: 4096,
+          },
+        ],
+      },
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+test('tencent adapter promotes inbound image-specific items into image inputs', async () => {
+  const configDir = await mkdtemp(join(tmpdir(), 'qodex-wechat-tencent-image-item-'));
+  const fetchMock = createFetchMock([
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [
+          {
+            from_user_id: 'wx-user-image-item',
+            create_time_ms: 1700000000004,
+            context_token: 'ctx-image-item',
+            item_list: [
+              {
+                type: 2,
+                image_item: {
+                  image_url: 'https://cdn.example.com/camera.jpg',
+                  file_name: 'camera.jpg',
+                  mime_type: 'image/jpeg',
+                  file_size: 8192,
+                },
+              },
+            ],
+          },
+        ],
+        get_updates_buf: 'sync-image-item-next',
+      },
+    },
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [],
+        get_updates_buf: 'sync-image-item-next',
+      },
+    },
+  ]);
+
+  const events = createHostRecorder();
+  const restore = installFetchMock(fetchMock);
+  try {
+    const adapter = await createAdapter({
+      config: {
+        api_base_url: 'https://ilinkai.weixin.qq.com',
+        token: 'saved-token-image-item',
+        state_dir: './state',
+      },
+      configDir,
+      instanceId: 'wechat',
+      accountId: 'wechat-main',
+      log: silentLogger,
+      abortSignal: new AbortController().signal,
+      host: events.host,
+    });
+
+    await adapter.start();
+    await waitFor(() => events.inbound.length === 1);
+    await adapter.stop?.();
+
+    assert.deepEqual(events.inbound, [
+      {
+        scope: 'c2c',
+        targetId: 'wx-user-image-item',
+        senderId: 'wx-user-image-item',
+        senderName: undefined,
+        text: '',
+        replyToId: undefined,
+        images: [
+          {
+            url: 'https://cdn.example.com/camera.jpg',
+            filename: 'camera.jpg',
+            mimeType: 'image/jpeg',
+            size: 8192,
+          },
+        ],
+      },
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+test('tencent adapter prefers direct download urls over opaque image tokens', async () => {
+  const configDir = await mkdtemp(join(tmpdir(), 'qodex-wechat-tencent-image-download-'));
+  const fetchMock = createFetchMock([
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [
+          {
+            from_user_id: 'wx-user-image-download',
+            create_time_ms: 1700000000005,
+            context_token: 'ctx-image-download',
+            item_list: [
+              {
+                type: 2,
+                image_item: {
+                  image_url:
+                    '3057020100044b30490201000204c51438d202032dd27a0204683bfb3a020469c37b34042464663164353337342d633235342d343666372d613630612d6331353536336261383733350204051418020201000405004c53da00',
+                  download_url: 'https://cdn.example.com/from-download.jpg',
+                  file_name: 'from-download.jpg',
+                  mime_type: 'image/jpeg',
+                  file_size: 16384,
+                },
+              },
+            ],
+          },
+        ],
+        get_updates_buf: 'sync-image-download-next',
+      },
+    },
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [],
+        get_updates_buf: 'sync-image-download-next',
+      },
+    },
+  ]);
+
+  const events = createHostRecorder();
+  const restore = installFetchMock(fetchMock);
+  try {
+    const adapter = await createAdapter({
+      config: {
+        api_base_url: 'https://ilinkai.weixin.qq.com',
+        token: 'saved-token-image-download',
+        state_dir: './state',
+      },
+      configDir,
+      instanceId: 'wechat',
+      accountId: 'wechat-main',
+      log: silentLogger,
+      abortSignal: new AbortController().signal,
+      host: events.host,
+    });
+
+    await adapter.start();
+    await waitFor(() => events.inbound.length === 1);
+    await adapter.stop?.();
+
+    assert.deepEqual(events.inbound, [
+      {
+        scope: 'c2c',
+        targetId: 'wx-user-image-download',
+        senderId: 'wx-user-image-download',
+        senderName: undefined,
+        text: '',
+        replyToId: undefined,
+        images: [
+          {
+            url: 'https://cdn.example.com/from-download.jpg',
+            filename: 'from-download.jpg',
+            mimeType: 'image/jpeg',
+            size: 16384,
+          },
+        ],
+      },
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+test('tencent adapter resolves relative image urls against the active base url', async () => {
+  const configDir = await mkdtemp(join(tmpdir(), 'qodex-wechat-tencent-relative-image-'));
+  const fetchMock = createFetchMock([
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [
+          {
+            from_user_id: 'wx-user-relative-image',
+            create_time_ms: 1700000000006,
+            context_token: 'ctx-relative-image',
+            item_list: [
+              {
+                type: 2,
+                image_item: {
+                  url: '/media/image/download?file=abc123',
+                  file_name: 'relative.jpg',
+                  mime_type: 'image/jpeg',
+                  file_size: 10240,
+                },
+              },
+            ],
+          },
+        ],
+        get_updates_buf: 'sync-relative-image-next',
+      },
+    },
+    {
+      match: '/media/image/download?file=abc123',
+      response: { ok: true },
+    },
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [],
+        get_updates_buf: 'sync-relative-image-next',
+      },
+    },
+  ]);
+
+  const events = createHostRecorder();
+  const restore = installFetchMock(fetchMock);
+  try {
+    const adapter = await createAdapter({
+      config: {
+        api_base_url: 'https://ilinkai.weixin.qq.com',
+        token: 'saved-token-relative-image',
+        state_dir: './state',
+      },
+      configDir,
+      instanceId: 'wechat',
+      accountId: 'wechat-main',
+      log: silentLogger,
+      abortSignal: new AbortController().signal,
+      host: events.host,
+    });
+
+    await adapter.start();
+    await waitFor(() => events.inbound.length === 1);
+    await adapter.stop?.();
+
+    assert.equal(events.inbound.length, 1);
+    assert.equal(events.inbound[0].targetId, 'wx-user-relative-image');
+    assert.equal(events.inbound[0].images?.[0]?.url, 'https://ilinkai.weixin.qq.com/media/image/download?file=abc123');
+    assert.equal(events.inbound[0].images?.[0]?.filename, 'relative.jpg');
+    assert.equal(events.inbound[0].images?.[0]?.mimeType, 'image/jpeg');
+    assert.equal(events.inbound[0].images?.[0]?.size, 10240);
+    assert.ok(events.inbound[0].images?.[0]?.localPath);
+  } finally {
+    restore();
+  }
+});
+
+test('tencent adapter treats image_item payloads as images even without mime type or extension', async () => {
+  const configDir = await mkdtemp(join(tmpdir(), 'qodex-wechat-tencent-image-kind-'));
+  const fetchMock = createFetchMock([
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [
+          {
+            from_user_id: 'wx-user-image-kind',
+            create_time_ms: 1700000000007,
+            context_token: 'ctx-image-kind',
+            item_list: [
+              {
+                type: 2,
+                image_item: {
+                  url: '/media/image/download?file=noext',
+                  aeskey: 'secret',
+                  media: 'media-token',
+                  mid_size: 12345,
+                  thumb_size: 1024,
+                },
+              },
+            ],
+          },
+        ],
+        get_updates_buf: 'sync-image-kind-next',
+      },
+    },
+    {
+      match: '/media/image/download?file=noext',
+      response: { ok: true },
+    },
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [],
+        get_updates_buf: 'sync-image-kind-next',
+      },
+    },
+  ]);
+
+  const events = createHostRecorder();
+  const restore = installFetchMock(fetchMock);
+  try {
+    const adapter = await createAdapter({
+      config: {
+        api_base_url: 'https://ilinkai.weixin.qq.com',
+        token: 'saved-token-image-kind',
+        state_dir: './state',
+      },
+      configDir,
+      instanceId: 'wechat',
+      accountId: 'wechat-main',
+      log: silentLogger,
+      abortSignal: new AbortController().signal,
+      host: events.host,
+    });
+
+    await adapter.start();
+    await waitFor(() => events.inbound.length === 1);
+    await adapter.stop?.();
+
+    assert.equal(events.inbound.length, 1);
+    assert.equal(events.inbound[0].images?.[0]?.url, 'https://ilinkai.weixin.qq.com/media/image/download?file=noext');
+    assert.ok(events.inbound[0].images?.[0]?.localPath);
+    assert.equal(events.inbound[0].files, undefined);
+  } finally {
+    restore();
+  }
+});
+
+test('tencent adapter does not treat opaque image tokens as downloadable urls', async () => {
+  const configDir = await mkdtemp(join(tmpdir(), 'qodex-wechat-tencent-image-opaque-'));
+  const fetchMock = createFetchMock([
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [
+          {
+            from_user_id: 'wx-user-image-opaque',
+            create_time_ms: 1700000000008,
+            context_token: 'ctx-image-opaque',
+            item_list: [
+              {
+                type: 2,
+                image_item: {
+                  url: '3057020100044b30490201000204c51438d2opaque',
+                  aeskey: 'secret',
+                  media: 'media-token',
+                },
+              },
+            ],
+          },
+        ],
+        get_updates_buf: 'sync-image-opaque-next',
+      },
+    },
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [],
+        get_updates_buf: 'sync-image-opaque-next',
+      },
+    },
+  ]);
+
+  const events = createHostRecorder();
+  const restore = installFetchMock(fetchMock);
+  try {
+    const adapter = await createAdapter({
+      config: {
+        api_base_url: 'https://ilinkai.weixin.qq.com',
+        token: 'saved-token-image-opaque',
+        state_dir: './state',
+      },
+      configDir,
+      instanceId: 'wechat',
+      accountId: 'wechat-main',
+      log: silentLogger,
+      abortSignal: new AbortController().signal,
+      host: events.host,
+    });
+
+    await adapter.start();
+    await waitFor(() => events.inbound.length === 1);
+    await adapter.stop?.();
+
+    assert.equal(events.inbound.length, 1);
+    assert.equal(events.inbound[0].images?.[0]?.url, '3057020100044b30490201000204c51438d2opaque');
+    assert.equal(
+      events.inbound[0].images?.[0]?.downloadError,
+      'unsupported WeChat image URL format; edge could not resolve a downloadable URL',
+    );
+  } finally {
+    restore();
+  }
+});
+
 test('tencent adapter keeps polling after getupdates timeout and still forwards a later message', async () => {
   const configDir = await mkdtemp(join(tmpdir(), 'qodex-wechat-tencent-poll-timeout-'));
   const timeoutError = new Error('timed out');

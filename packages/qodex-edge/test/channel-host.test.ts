@@ -159,6 +159,50 @@ test('passes inbound image attachments through to the runtime message', async ()
   await host.stop();
 });
 
+test('passes inbound file attachments through to the runtime message', async () => {
+  const runtime = new RecordingRuntime();
+  const host = new QodexChannelHost(
+    runtime as any,
+    createLogger('fatal'),
+    buildConfig(),
+  );
+
+  await host.registerExtension(createTestExtension(createTestPlugin([])), 'test:qqbot');
+  await host.startConfiguredChannels();
+
+  await host.dispatchInbound({
+    channelId: 'qq_primary',
+    platform: 'qqbot',
+    scope: 'group',
+    targetId: 'group-1',
+    senderId: 'sender-a',
+    text: '处理这个文件',
+    files: [
+      {
+        source: 'remote',
+        url: 'https://cdn.example.com/notes.pdf',
+        mimeType: 'application/pdf',
+        filename: 'notes.pdf',
+        size: 4096,
+      },
+    ],
+    to: 'qqbot:group:group-1',
+  });
+
+  assert.equal(runtime.messages.length, 1);
+  assert.deepEqual(runtime.messages[0].files, [
+    {
+      source: 'remote',
+      url: 'https://cdn.example.com/notes.pdf',
+      mimeType: 'application/pdf',
+      filename: 'notes.pdf',
+      size: 4096,
+    },
+  ]);
+
+  await host.stop();
+});
+
 test('attaches per-instance codex overrides to inbound runtime messages', async () => {
   const runtime = new RecordingRuntime();
   const host = new QodexChannelHost(

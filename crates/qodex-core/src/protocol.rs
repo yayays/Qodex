@@ -12,6 +12,7 @@ pub const JSONRPC_VERSION: &str = "2.0";
 
 pub mod methods {
     pub const SEND_MESSAGE: &str = "conversation/sendMessage";
+    pub const SAVE_FILES: &str = "conversation/saveFiles";
     pub const BIND_WORKSPACE: &str = "conversation/bindWorkspace";
     pub const NEW_THREAD: &str = "conversation/newThread";
     pub const STATUS: &str = "conversation/status";
@@ -126,16 +127,40 @@ pub struct ImageInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FileInput {
+    pub source: String,
+    pub url: Option<String>,
+    pub local_path: Option<String>,
+    pub filename: Option<String>,
+    pub mime_type: Option<String>,
+    pub size: Option<u64>,
+    pub platform_file_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SendMessageParams {
     pub conversation: ConversationRef,
     pub sender: SenderRef,
     pub text: String,
     #[serde(default)]
     pub images: Vec<ImageInput>,
+    #[serde(default)]
+    pub files: Vec<FileInput>,
     pub workspace: Option<String>,
     pub backend_kind: Option<BackendKind>,
     pub model: Option<String>,
     pub model_provider: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveFilesParams {
+    pub conversation: ConversationRef,
+    #[serde(default)]
+    pub files: Vec<FileInput>,
+    pub workspace: Option<String>,
+    pub backend_kind: Option<BackendKind>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -275,6 +300,27 @@ pub struct SendMessageResponse {
     pub conversation_key: String,
     pub thread_id: String,
     pub turn_id: String,
+    #[serde(default)]
+    pub saved_files: Vec<SavedFileResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedFileResult {
+    pub filename: Option<String>,
+    pub saved_path: Option<String>,
+    pub source: String,
+    pub url: Option<String>,
+    pub status: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveFilesResponse {
+    pub conversation_key: String,
+    #[serde(default)]
+    pub saved_files: Vec<SavedFileResult>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -185,6 +185,14 @@ test('non-image attachments stay in the text payload', () => {
     '[attachment:notes.pdf] (application/pdf) https://cdn.example.com/notes.pdf',
   );
   assert.deepEqual(payload.images, []);
+  assert.deepEqual(payload.files, [
+    {
+      source: 'remote',
+      url: 'https://cdn.example.com/notes.pdf',
+      mimeType: 'application/pdf',
+      filename: 'notes.pdf',
+    },
+  ]);
   assert.deepEqual(payload.voiceAttachments, []);
 });
 

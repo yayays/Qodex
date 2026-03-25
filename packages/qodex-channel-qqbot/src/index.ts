@@ -76,7 +76,7 @@ export const qqbotChannelPlugin: ChannelPlugin = {
   },
 };
 
-const qodexQQBotPluginDefinition = {
+const qodexQQBotPluginDefinition: QodexPluginExtension = {
   id: 'qodex-channel-qqbot',
   name: 'Qodex QQ Bot Channel',
   description:

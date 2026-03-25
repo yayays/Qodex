@@ -1,4 +1,4 @@
-import type { ConversationRef, OutboundSink } from '../protocol.js';
+import type { ConversationRef, OutboundSink, SavedFileResult } from '../protocol.js';
 import type { QodexLogger } from '../logger.js';
 import type { ConversationProcessingState } from './types.js';
 import { parseConversationKey } from './utils.js';
@@ -28,6 +28,11 @@ interface ActiveTurnState {
 
 type AutoApproveOverride = boolean;
 
+interface PendingImageState {
+  savedFiles: SavedFileResult[];
+  createdAt: number;
+}
+
 export interface SinkResolver {
   resolveSinkForConversation(conversation: ConversationRef): OutboundSink | undefined;
 }
@@ -38,6 +43,7 @@ export class RuntimeSessionState {
   readonly activeTurns = new Map<string, ActiveTurnState>();
   readonly failedTurns = new Map<string, number>();
   readonly autoApprovePermissions = new Map<string, AutoApproveOverride>();
+  readonly pendingImages = new Map<string, PendingImageState>();
   lastPrunedAt = 0;
 
   rememberSink(conversationKey: string, sink: OutboundSink): void {
@@ -145,6 +151,21 @@ export class RuntimeSessionState {
     });
   }
 
+  setPendingImage(conversationKey: string, savedFiles: SavedFileResult[]): void {
+    this.pendingImages.set(conversationKey, {
+      savedFiles,
+      createdAt: Date.now(),
+    });
+  }
+
+  getPendingImage(conversationKey: string): PendingImageState | undefined {
+    return this.pendingImages.get(conversationKey);
+  }
+
+  clearPendingImage(conversationKey: string): void {
+    this.pendingImages.delete(conversationKey);
+  }
+
   getProcessingState(conversationKey: string): ConversationProcessingState {
     let activeTurns = 0;
     let latestTurnId: string | undefined;
@@ -215,6 +236,12 @@ export class RuntimeSessionState {
     for (const conversationKey of this.autoApprovePermissions.keys()) {
       if (!activeConversations.has(conversationKey) && !this.sinks.has(conversationKey)) {
         this.autoApprovePermissions.delete(conversationKey);
+      }
+    }
+
+    for (const conversationKey of this.pendingImages.keys()) {
+      if (!activeConversations.has(conversationKey) && !this.sinks.has(conversationKey)) {
+        this.pendingImages.delete(conversationKey);
       }
     }
   }

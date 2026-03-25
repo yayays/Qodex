@@ -5,6 +5,7 @@ export const JSONRPC_VERSION = "2.0" as const;
 
 export const CoreMethods = {
   "sendMessage": "conversation/sendMessage",
+  "saveFiles": "conversation/saveFiles",
   "bindWorkspace": "conversation/bindWorkspace",
   "newThread": "conversation/newThread",
   "status": "conversation/status",

@@ -215,6 +215,97 @@ test('tencent adapter polls inbound text messages and forwards them to the host'
   }
 });
 
+test('tencent adapter forwards inbound file metadata when the transport exposes file items', async () => {
+  const configDir = await mkdtemp(join(tmpdir(), 'qodex-wechat-tencent-file-'));
+  const fetchMock = createFetchMock([
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [
+          {
+            from_user_id: 'wx-user-file',
+            create_time_ms: 1700000000002,
+            context_token: 'ctx-file',
+            item_list: [
+              {
+                type: 1,
+                text_item: {
+                  text: '请看这个文件',
+                },
+              },
+              {
+                type: 4,
+                file_item: {
+                  file_id: 'file-1',
+                  file_name: 'spec.pdf',
+                  file_url: 'https://cdn.example.com/spec.pdf',
+                  mime_type: 'application/pdf',
+                  file_size: 2048,
+                },
+              },
+            ],
+          },
+        ],
+        get_updates_buf: 'sync-file-next',
+      },
+    },
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [],
+        get_updates_buf: 'sync-file-next',
+      },
+    },
+  ]);
+
+  const events = createHostRecorder();
+  const restore = installFetchMock(fetchMock);
+  try {
+    const adapter = await createAdapter({
+      config: {
+        api_base_url: 'https://ilinkai.weixin.qq.com',
+        token: 'saved-token-file',
+        state_dir: './state',
+      },
+      configDir,
+      instanceId: 'wechat',
+      accountId: 'wechat-main',
+      log: silentLogger,
+      abortSignal: new AbortController().signal,
+      host: events.host,
+    });
+
+    await adapter.start();
+    await waitFor(() => events.inbound.length === 1);
+    await adapter.stop?.();
+
+    assert.deepEqual(events.inbound, [
+      {
+        scope: 'c2c',
+        targetId: 'wx-user-file',
+        senderId: 'wx-user-file',
+        senderName: undefined,
+        text: '请看这个文件',
+        replyToId: undefined,
+        files: [
+          {
+            source: 'remote',
+            url: 'https://cdn.example.com/spec.pdf',
+            filename: 'spec.pdf',
+            mimeType: 'application/pdf',
+            size: 2048,
+            platformFileId: 'file-1',
+          },
+        ],
+      },
+    ]);
+  } finally {
+    restore();
+  }
+});
+
 test('tencent adapter keeps polling after getupdates timeout and still forwards a later message', async () => {
   const configDir = await mkdtemp(join(tmpdir(), 'qodex-wechat-tencent-poll-timeout-'));
   const timeoutError = new Error('timed out');

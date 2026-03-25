@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
 
-import type { ChannelGatewayContext, ChannelInboundImage } from '@qodex/edge';
+import type { ChannelGatewayContext, ChannelInboundImage, FileInput } from '@qodex/edge';
 
 import {
   fetchQQBotAccessToken,
@@ -496,7 +496,12 @@ async function dispatchC2CMessage(
   }
 
   const payload = buildInboundPayloadWithVoice(event.content, event.attachments, config.voice);
-  if (!payload.text && payload.images.length === 0 && payload.voiceAttachments.length === 0) {
+  if (
+    !payload.text
+    && payload.images.length === 0
+    && payload.files.length === 0
+    && payload.voiceAttachments.length === 0
+  ) {
     return;
   }
 
@@ -547,6 +552,7 @@ async function dispatchC2CMessage(
     senderId: event.author.user_openid,
     text: payload.text,
     images: payload.images,
+    files: payload.files,
     accountId: context.account.accountId,
     replyToId: event.id,
     to: qqbotCanonicalTarget('c2c', event.author.user_openid),
@@ -582,7 +588,12 @@ async function dispatchGroupMessage(
     event.attachments,
     config.voice,
   );
-  if (!payload.text && payload.images.length === 0 && payload.voiceAttachments.length === 0) {
+  if (
+    !payload.text
+    && payload.images.length === 0
+    && payload.files.length === 0
+    && payload.voiceAttachments.length === 0
+  ) {
     return;
   }
 
@@ -624,6 +635,7 @@ async function dispatchGroupMessage(
     senderId: event.author.member_openid,
     text: payload.text,
     images: payload.images,
+    files: payload.files,
     accountId: context.account.accountId,
     replyToId: event.id,
     to: qqbotCanonicalTarget('group', event.group_openid),
@@ -659,7 +671,12 @@ async function dispatchGuildMessage(
     event.attachments,
     config.voice,
   );
-  if (!payload.text && payload.images.length === 0 && payload.voiceAttachments.length === 0) {
+  if (
+    !payload.text
+    && payload.images.length === 0
+    && payload.files.length === 0
+    && payload.voiceAttachments.length === 0
+  ) {
     return;
   }
 
@@ -703,6 +720,7 @@ async function dispatchGuildMessage(
     senderName: event.member?.nick ?? event.author.username,
     text: payload.text,
     images: payload.images,
+    files: payload.files,
     accountId: context.account.accountId,
     replyToId: event.id,
     to: qqbotCanonicalTarget('channel', event.channel_id),
@@ -807,9 +825,15 @@ export function buildInboundPayload(
     size?: number;
   }> | undefined,
   voiceAttachments: VoiceAttachmentRef[] = [],
-): { text: string; images: ChannelInboundImage[]; voiceAttachments: VoiceAttachmentRef[] } {
+): {
+  text: string;
+  images: ChannelInboundImage[];
+  files: FileInput[];
+  voiceAttachments: VoiceAttachmentRef[];
+} {
   const lines = [content.trim()].filter(Boolean);
   const images: ChannelInboundImage[] = [];
+  const files: FileInput[] = [];
   for (const attachment of attachments ?? []) {
     if (!attachment.url) {
       continue;
@@ -837,10 +861,18 @@ export function buildInboundPayload(
       : '[attachment]';
     const type = attachment.content_type ? ` (${attachment.content_type})` : '';
     lines.push(`${prefix}${type} ${attachment.url}`);
+    files.push({
+      source: 'remote',
+      url: attachment.url,
+      ...(attachment.content_type ? { mimeType: attachment.content_type } : {}),
+      ...(attachment.filename ? { filename: attachment.filename } : {}),
+      ...(typeof attachment.size === 'number' ? { size: attachment.size } : {}),
+    });
   }
   return {
     text: lines.join('\n').trim(),
     images,
+    files,
     voiceAttachments,
   };
 }
@@ -849,7 +881,12 @@ export function buildInboundPayloadWithVoice(
   content: string,
   attachments: QQBotMessageEventAttachments | undefined,
   voiceConfig: Awaited<ReturnType<typeof resolveQQBotChannelConfig>>['voice'],
-): { text: string; images: ChannelInboundImage[]; voiceAttachments: VoiceAttachmentRef[] } {
+): {
+  text: string;
+  images: ChannelInboundImage[];
+  files: FileInput[];
+  voiceAttachments: VoiceAttachmentRef[];
+} {
   const voiceAttachments = findVoiceAttachments(attachments, voiceConfig);
   return buildInboundPayload(content, attachments, voiceAttachments);
 }

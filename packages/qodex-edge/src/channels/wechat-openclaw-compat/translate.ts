@@ -18,6 +18,7 @@ export function toChannelInboundMessage(params: {
     accountId: params.accountId,
     to: params.event.targetId,
     replyToId: params.event.replyToId,
+    files: params.event.files,
     raw: params.event.raw,
   };
 }

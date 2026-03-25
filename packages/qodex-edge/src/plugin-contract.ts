@@ -1,5 +1,5 @@
 import type { BackendKind } from './generated/config-contract.js';
-import type { ConversationRef } from './core-protocol.js';
+import type { ConversationRef, FileInput } from './core-protocol.js';
 
 export const QODEX_PLUGIN_API_VERSION = 1 as const;
 export const QODEX_PLUGIN_CAPABILITIES = [
@@ -37,6 +37,7 @@ export interface ChannelInboundMessage {
   to?: string;
   platform?: string;
   images?: ChannelInboundImage[];
+  files?: FileInput[];
   raw?: unknown;
 }
 

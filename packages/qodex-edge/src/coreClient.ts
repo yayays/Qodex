@@ -43,6 +43,8 @@ import {
   PromptHintRemoveResponse,
   SendMessageParams,
   SendMessageResponse,
+  SaveFilesParams,
+  SaveFilesResponse,
 } from './core-protocol.js';
 
 interface PendingRequest {
@@ -141,6 +143,10 @@ export class CoreClient extends EventEmitter {
 
   async sendMessage(params: SendMessageParams): Promise<SendMessageResponse> {
     return this.request<SendMessageResponse>(CoreMethods.sendMessage, params);
+  }
+
+  async saveFiles(params: SaveFilesParams): Promise<SaveFilesResponse> {
+    return this.request<SaveFilesResponse>(CoreMethods.saveFiles, params);
   }
 
   async bindWorkspace(params: BindWorkspaceParams): Promise<ConversationStatusResponse> {

@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import type { FileInput } from '../../../core-protocol.js';
 import type { WechatCompatInboundEvent } from '../types.js';
 import type { CreateWechatCompatAdapterParams, WechatCompatAdapter } from '../types.js';
 
@@ -24,6 +25,7 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_LOGIN_WAIT_TIMEOUT_MS = 480_000;
 const TEXT_ITEM_TYPE = 1;
 const VOICE_ITEM_TYPE = 3;
+const FILE_ITEM_TYPE = 4;
 const BOT_MESSAGE_TYPE = 2;
 const FINISH_MESSAGE_STATE = 2;
 
@@ -255,7 +257,8 @@ function toInboundEvent(message: Record<string, unknown>): WechatCompatInboundEv
   const fromUserId = readString(message.from_user_id);
   const groupId = readString(message.group_id);
   const text = extractInboundText(message.item_list);
-  if (!fromUserId || !text) {
+  const files = extractInboundFiles(message.item_list);
+  if (!fromUserId || (!text && files.length === 0)) {
     return undefined;
   }
 
@@ -266,6 +269,7 @@ function toInboundEvent(message: Record<string, unknown>): WechatCompatInboundEv
     senderName: undefined,
     text,
     replyToId: undefined,
+    ...(files.length > 0 ? { files } : {}),
   };
 }
 
@@ -291,6 +295,53 @@ function extractInboundText(itemListValue: unknown): string {
     }
   }
   return '';
+}
+
+function extractInboundFiles(
+  itemListValue: unknown,
+): FileInput[] {
+  if (!Array.isArray(itemListValue)) {
+    return [];
+  }
+
+  const files: FileInput[] = [];
+  for (const item of itemListValue) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    const file = readInboundFile(item);
+    if (file) {
+      files.push(file);
+    }
+  }
+  return files;
+}
+
+function readInboundFile(item: Record<string, unknown>): FileInput | undefined {
+  if (item.type !== FILE_ITEM_TYPE || !isRecord(item.file_item)) {
+    return undefined;
+  }
+
+  const fileUrl = readString(item.file_item.file_url) ?? readString(item.file_item.url);
+  const localPath = readString(item.file_item.local_path) ?? readString(item.file_item.path);
+  const filename = readString(item.file_item.file_name) ?? readString(item.file_item.filename);
+  const mimeType = readString(item.file_item.mime_type) ?? readString(item.file_item.content_type);
+  const size = readNumber(item.file_item.file_size) ?? readNumber(item.file_item.size);
+  const platformFileId = readString(item.file_item.file_id) ?? readString(item.file_item.id);
+
+  if (!fileUrl && !localPath && !platformFileId) {
+    return undefined;
+  }
+
+  return {
+    source: localPath ? 'downloaded' : 'remote',
+    ...(fileUrl ? { url: fileUrl } : {}),
+    ...(localPath ? { localPath } : {}),
+    ...(filename ? { filename } : {}),
+    ...(mimeType ? { mimeType } : {}),
+    ...(typeof size === 'number' ? { size } : {}),
+    ...(platformFileId ? { platformFileId } : {}),
+  };
 }
 
 async function startQrLogin(baseUrl: string, timeoutMs: number) {

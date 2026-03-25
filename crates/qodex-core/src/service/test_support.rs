@@ -416,6 +416,7 @@ pub(super) fn build_message(
         },
         text: text.to_string(),
         images: Vec::new(),
+        files: Vec::new(),
         workspace: workspace.map(str::to_string),
         backend_kind: None,
         model: None,

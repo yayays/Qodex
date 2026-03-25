@@ -103,6 +103,49 @@ test('wechat compat channel forwards inbound messages into qodex runtime with we
   await host.stop();
 });
 
+test('wechat compat channel forwards inbound file metadata into qodex runtime', async () => {
+  resetFakeWechatAdapterState();
+  const runtime = new RecordingRuntime();
+  const host = new QodexChannelHost(
+    runtime as any,
+    createLogger('fatal'),
+    buildConfig({
+      inbound_messages: [
+        {
+          scope: 'c2c',
+          target_id: 'wx-user-9',
+          sender_id: 'wx-user-9',
+          text: '请看附件',
+          files: [
+            {
+              source: 'remote',
+              url: 'https://cdn.example.com/spec.pdf',
+              mimeType: 'application/pdf',
+              filename: 'spec.pdf',
+              size: 2048,
+            },
+          ],
+        },
+      ],
+    }),
+  );
+
+  await host.startConfiguredChannels();
+
+  assert.equal(runtime.messages.length, 1);
+  assert.deepEqual(runtime.messages[0].files, [
+    {
+      source: 'remote',
+      url: 'https://cdn.example.com/spec.pdf',
+      mimeType: 'application/pdf',
+      filename: 'spec.pdf',
+      size: 2048,
+    },
+  ]);
+
+  await host.stop();
+});
+
 test('wechat compat channel sends outbound text through the active adapter', async () => {
   resetFakeWechatAdapterState();
   const runtime = new RecordingRuntime();

@@ -177,6 +177,7 @@ export class QodexChannelHost {
       },
       text: message.text,
       images: message.images,
+      files: message.files,
       workspace: message.workspace,
       backendKind: resolveBackendKindOverride(instance?.entry),
       codex: resolveCodexOverrides(instance?.entry),

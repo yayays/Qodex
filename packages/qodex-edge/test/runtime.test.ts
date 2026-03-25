@@ -11,7 +11,9 @@ const RUNTIME_IDLE_TTL_MS = 60 * 60_000;
 
 class MockCoreClient extends EventEmitter {
   sendMessageCalls = 0;
+  saveFilesCalls = 0;
   lastSendMessageParams: any;
+  lastSaveFilesParams: any;
   lastNewThreadParams: any;
   lastRespondApprovalParams: any;
   respondApprovalCalls: any[] = [];
@@ -64,18 +66,29 @@ class MockCoreClient extends EventEmitter {
     summary: null,
   };
   ackedDeliveries: string[] = [];
+  sendMessageResponse: any = {
+    accepted: true,
+    conversationKey: 'qqbot:group:demo',
+    threadId: 'thread-test-1',
+    turnId: 'turn-test-1',
+  };
+  saveFilesResponse: any = {
+    conversationKey: 'qqbot:group:demo',
+    savedFiles: [],
+  };
 
   async connect(): Promise<void> {}
 
   async sendMessage(params?: unknown) {
     this.sendMessageCalls += 1;
     this.lastSendMessageParams = params;
-    return {
-      accepted: true,
-      conversationKey: 'qqbot:group:demo',
-      threadId: 'thread-test-1',
-      turnId: 'turn-test-1',
-    };
+    return this.sendMessageResponse;
+  }
+
+  async saveFiles(params?: unknown) {
+    this.saveFilesCalls += 1;
+    this.lastSaveFilesParams = params;
+    return this.saveFilesResponse;
   }
 
   async bindWorkspace() {
@@ -772,10 +785,21 @@ test('image inputs are forwarded to core sendMessage', async () => {
   ]);
 });
 
-test('image-only input still reaches core sendMessage', async () => {
+test('image-only input is intercepted before reaching core sendMessage', async () => {
   const core = new MockCoreClient();
+  core.saveFilesResponse = {
+    conversationKey: 'qqbot:group:image-only-demo',
+    savedFiles: [
+      {
+        filename: 'example.png',
+        savedPath: '/tmp/qodex/uploadfile/2026-03-25/example.png',
+        source: 'remote',
+        status: 'saved',
+      },
+    ],
+  };
   const runtime = createRuntime(core);
-  const { sink } = createSink();
+  const { sink, messages } = createSink();
 
   await runtime.handleIncoming(
     buildMessage('qqbot:group:image-only-demo', '', [
@@ -787,14 +811,205 @@ test('image-only input still reaches core sendMessage', async () => {
     sink,
   );
 
+  assert.equal(core.sendMessageCalls, 0);
+  assert.equal(core.saveFilesCalls, 1);
+  assert.equal(messages.length, 1);
+  assert.match(messages[0].text, /图片已保存/);
+});
+
+test('file inputs are forwarded to core sendMessage', async () => {
+  const core = new MockCoreClient();
+  const runtime = createRuntime(core);
+  const { sink } = createSink();
+
+  await runtime.handleIncoming(
+    buildMessage(
+      'qqbot:group:file-demo',
+      '请处理这个文件',
+      undefined,
+      undefined,
+      [
+        {
+          source: 'remote',
+          url: 'https://cdn.example.com/notes.pdf',
+          mimeType: 'application/pdf',
+          filename: 'notes.pdf',
+          size: 4096,
+        },
+      ],
+    ),
+    sink,
+  );
+
   assert.equal(core.sendMessageCalls, 1);
-  assert.equal(core.lastSendMessageParams.text, '');
-  assert.deepEqual(core.lastSendMessageParams.images, [
+  assert.deepEqual(core.lastSendMessageParams.files, [
     {
-      url: 'https://cdn.example.com/example.png',
-      mimeType: 'image/png',
+      source: 'remote',
+      url: 'https://cdn.example.com/notes.pdf',
+      mimeType: 'application/pdf',
+      filename: 'notes.pdf',
+      size: 4096,
     },
   ]);
+});
+
+test('saved file paths are reported back to the user after sendMessage', async () => {
+  const core = new MockCoreClient();
+  core.sendMessageResponse = {
+    accepted: true,
+    conversationKey: 'qqbot:group:file-save-demo',
+    threadId: 'thread-test-1',
+    turnId: 'turn-test-1',
+    savedFiles: [
+      {
+        filename: 'notes.pdf',
+        savedPath: '/tmp/qodex/uploadfile/2026-03-25/notes.pdf',
+        source: 'remote',
+        status: 'saved',
+      },
+    ],
+  };
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:file-save-demo', '请保存这个文件'),
+    sink,
+  );
+
+  assert.equal(core.sendMessageCalls, 1);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].kind, 'system');
+  assert.match(messages[0].text, /notes\.pdf/);
+  assert.match(messages[0].text, /\/tmp\/qodex\/uploadfile\/2026-03-25\/notes\.pdf/);
+});
+
+test('image-only input is intercepted, saved, and prompts for handling instructions', async () => {
+  const core = new MockCoreClient();
+  core.saveFilesResponse = {
+    conversationKey: 'qqbot:group:image-pending-demo',
+    savedFiles: [
+      {
+        filename: 'screenshot.png',
+        savedPath: '/tmp/qodex/uploadfile/2026-03-25/screenshot.png',
+        source: 'remote',
+        status: 'saved',
+      },
+    ],
+  };
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:image-pending-demo', '', [
+      {
+        url: 'https://cdn.example.com/screenshot.png',
+        mimeType: 'image/png',
+        filename: 'screenshot.png',
+      },
+    ]),
+    sink,
+  );
+
+  assert.equal(core.saveFilesCalls, 1);
+  assert.equal(core.sendMessageCalls, 0);
+  assert.deepEqual(core.lastSaveFilesParams.files, [
+    {
+      source: 'remote',
+      url: 'https://cdn.example.com/screenshot.png',
+      mimeType: 'image/png',
+      filename: 'screenshot.png',
+    },
+  ]);
+  assert.equal(messages.length, 1);
+  assert.match(messages[0].text, /screenshot\.png/);
+  assert.match(messages[0].text, /怎么处理/);
+});
+
+test('next handling reply sends pending image path to backend and clears pending state', async () => {
+  const core = new MockCoreClient();
+  core.saveFilesResponse = {
+    conversationKey: 'qqbot:group:image-reply-demo',
+    savedFiles: [
+      {
+        filename: 'screenshot.png',
+        savedPath: '/tmp/qodex/uploadfile/2026-03-25/screenshot.png',
+        source: 'remote',
+        status: 'saved',
+      },
+    ],
+  };
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:image-reply-demo', '', [
+      {
+        url: 'https://cdn.example.com/screenshot.png',
+        mimeType: 'image/png',
+        filename: 'screenshot.png',
+      },
+    ]),
+    sink,
+  );
+  messages.length = 0;
+
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:image-reply-demo', '是，识别这个图片'),
+    sink,
+  );
+
+  assert.equal(core.saveFilesCalls, 1);
+  assert.equal(core.sendMessageCalls, 1);
+  assert.match(core.lastSendMessageParams.text, /是，识别这个图片/);
+  assert.match(core.lastSendMessageParams.text, /\/tmp\/qodex\/uploadfile\/2026-03-25\/screenshot\.png/);
+  assert.equal(messages.length, 0);
+});
+
+test('non-handling reply clears pending image and processes the text normally', async () => {
+  const core = new MockCoreClient();
+  core.saveFilesResponse = {
+    conversationKey: 'qqbot:group:image-cancel-demo',
+    savedFiles: [
+      {
+        filename: 'screenshot.png',
+        savedPath: '/tmp/qodex/uploadfile/2026-03-25/screenshot.png',
+        source: 'remote',
+        status: 'saved',
+      },
+    ],
+  };
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:image-cancel-demo', '', [
+      {
+        url: 'https://cdn.example.com/screenshot.png',
+        mimeType: 'image/png',
+        filename: 'screenshot.png',
+      },
+    ]),
+    sink,
+  );
+  messages.length = 0;
+
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:image-cancel-demo', '等一下'),
+    sink,
+  );
+
+  assert.equal(core.sendMessageCalls, 1);
+  assert.equal(core.lastSendMessageParams.text, '等一下');
+  assert.equal(messages.length, 0);
+
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:image-cancel-demo', '识别这个图片'),
+    sink,
+  );
+
+  assert.equal(core.sendMessageCalls, 2);
+  assert.equal(core.lastSendMessageParams.text, '识别这个图片');
 });
 
 test('per-message codex overrides are forwarded to core sendMessage', async () => {
@@ -1293,6 +1508,7 @@ function buildMessage(
   text = 'hello from runtime test',
   images?: PlatformMessage['images'],
   backendKind?: PlatformMessage['backendKind'],
+  files?: PlatformMessage['files'],
 ): PlatformMessage {
   return {
     conversation: {
@@ -1308,6 +1524,7 @@ function buildMessage(
     text,
     images,
     backendKind,
+    files,
   };
 }
 

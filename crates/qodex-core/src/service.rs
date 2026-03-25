@@ -36,7 +36,8 @@ use crate::{
         MemoryContextResponse, MemoryForgetParams, MemoryForgetResponse, MemoryListParams,
         MemoryProfileGetParams, MemoryProfileResponse, MemoryProfileUpsertParams,
         MemoryRememberParams, MemoryRememberResponse, PromptHintAddParams, PromptHintAddResponse,
-        PromptHintRemoveParams, PromptHintRemoveResponse, SendMessageParams, SendMessageResponse,
+        PromptHintRemoveParams, PromptHintRemoveResponse, SaveFilesParams, SaveFilesResponse,
+        SavedFileResult, SendMessageParams, SendMessageResponse,
     },
 };
 
@@ -47,6 +48,7 @@ mod event_projector;
 mod events;
 mod helpers;
 mod housekeeping;
+mod inbound_files;
 mod lifecycle;
 mod memory;
 mod runtime;
@@ -56,6 +58,7 @@ mod test_support;
 mod tests;
 
 use self::helpers::*;
+use self::inbound_files::{image_inputs_to_file_inputs, materialize_inbound_files};
 use self::memory::build_user_memory_key;
 
 #[derive(Clone)]
@@ -205,6 +208,13 @@ impl AppService {
                 conversation = self.switch_workspace(&conversation, &workspace).await?;
             }
 
+            let materialized_inputs = collect_materialized_inputs(&params.files, &params.images);
+            let saved_files = if materialized_inputs.is_empty() {
+                Vec::<SavedFileResult>::new()
+            } else {
+                materialize_inbound_files(&conversation_key, &workspace, &materialized_inputs).await
+            };
+
             let user_key = build_user_memory_key(
                 &params.conversation.platform,
                 &params.conversation.scope,
@@ -266,6 +276,51 @@ impl AppService {
                 conversation_key: conversation_key.clone(),
                 thread_id,
                 turn_id: turn.turn.id,
+                saved_files,
+            })
+        };
+        self.touch_conversation_lock(&conversation_key).await;
+        self.try_prune_transient_state(false).await;
+        result
+    }
+
+    pub async fn save_files(&self, params: SaveFilesParams) -> Result<SaveFilesResponse> {
+        let conversation_key = params.conversation.conversation_key.clone();
+        let result: Result<SaveFilesResponse> = {
+            let conversation_lock = self.get_conversation_lock(&conversation_key).await;
+            let _guard = conversation_lock.lock().await;
+
+            let synthetic = SendMessageParams {
+                conversation: params.conversation.clone(),
+                sender: crate::protocol::SenderRef {
+                    sender_id: "system".to_string(),
+                    display_name: None,
+                },
+                text: String::new(),
+                images: Vec::new(),
+                files: params.files.clone(),
+                workspace: params.workspace.clone(),
+                backend_kind: params.backend_kind,
+                model: None,
+                model_provider: None,
+            };
+            let mut conversation = self.ensure_conversation(&synthetic).await?;
+            let workspace = params
+                .workspace
+                .as_deref()
+                .map(normalize_workspace_path)
+                .unwrap_or_else(|| conversation.workspace.clone());
+            self.validate_workspace(&workspace)?;
+
+            if conversation.workspace != workspace {
+                conversation = self.switch_workspace(&conversation, &workspace).await?;
+            }
+
+            let saved_files = materialize_inbound_files(&conversation_key, &workspace, &params.files).await;
+
+            Ok(SaveFilesResponse {
+                conversation_key: conversation.conversation_key,
+                saved_files,
             })
         };
         self.touch_conversation_lock(&conversation_key).await;
@@ -300,4 +355,13 @@ impl AppService {
             entry.last_used_at = Instant::now();
         }
     }
+}
+
+fn collect_materialized_inputs(
+    files: &[crate::protocol::FileInput],
+    images: &[ImageInput],
+) -> Vec<crate::protocol::FileInput> {
+    let mut all = files.to_vec();
+    all.extend(image_inputs_to_file_inputs(images));
+    all
 }

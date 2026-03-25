@@ -1,5 +1,5 @@
 import type { BackendKind } from './generated/config-contract.js';
-import type { ConversationRef, ImageInput, SenderRef } from './core-protocol.js';
+import type { ConversationRef, FileInput, ImageInput, SenderRef } from './core-protocol.js';
 
 export interface CodexRequestOverrides {
   model?: string;
@@ -11,6 +11,7 @@ export interface PlatformMessage {
   sender: SenderRef;
   text: string;
   images?: ImageInput[];
+  files?: FileInput[];
   workspace?: string;
   backendKind?: BackendKind;
   codex?: CodexRequestOverrides;

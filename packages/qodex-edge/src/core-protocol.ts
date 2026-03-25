@@ -60,15 +60,33 @@ export interface ImageInput {
   size?: number;
 }
 
+export interface FileInput {
+  source: 'remote' | 'downloaded';
+  url?: string;
+  localPath?: string;
+  filename?: string;
+  mimeType?: string;
+  size?: number;
+  platformFileId?: string;
+}
+
 export interface SendMessageParams {
   conversation: ConversationRef;
   sender: SenderRef;
   text: string;
   images?: ImageInput[];
+  files?: FileInput[];
   workspace?: string;
   backendKind?: BackendKind;
   model?: string;
   modelProvider?: string;
+}
+
+export interface SaveFilesParams {
+  conversation: ConversationRef;
+  files: FileInput[];
+  workspace?: string;
+  backendKind?: BackendKind;
 }
 
 export interface SendMessageResponse {
@@ -76,6 +94,21 @@ export interface SendMessageResponse {
   conversationKey: string;
   threadId: string;
   turnId: string;
+  savedFiles?: SavedFileResult[];
+}
+
+export interface SaveFilesResponse {
+  conversationKey: string;
+  savedFiles: SavedFileResult[];
+}
+
+export interface SavedFileResult {
+  filename?: string;
+  savedPath?: string;
+  source: 'remote' | 'downloaded';
+  url?: string;
+  status: 'saved' | 'failed';
+  error?: string;
 }
 
 export interface BindWorkspaceParams {

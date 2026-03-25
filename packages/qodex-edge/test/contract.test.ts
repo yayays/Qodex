@@ -16,6 +16,7 @@ import {
   JSONRPC_VERSION,
   type ApprovalRequestedEvent,
   type ConversationDetailsResponse,
+  type FileInput,
   type ConversationRunningRuntime,
   type PendingDeliveryRecord,
   type SendMessageParams,
@@ -81,6 +82,7 @@ test('critical DTO field shapes match the shared DTO contract', () => {
     sender: {} as SendMessageParams['sender'],
     text: '',
     images: [],
+    files: [] as FileInput[],
     workspace: undefined,
     backendKind: undefined,
     model: undefined,
@@ -93,6 +95,7 @@ test('critical DTO field shapes match the shared DTO contract', () => {
     conversationKey: '',
     threadId: '',
     turnId: '',
+    savedFiles: undefined,
   });
   assert.deepEqual(sendMessageResponseKeys, DtoContract.sendMessageResponse);
 

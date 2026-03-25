@@ -32,6 +32,19 @@ export const DtoContract = {
         "size"
       ]
     },
+    "fileInput": {
+      "required": [
+        "source"
+      ],
+      "optional": [
+        "url",
+        "localPath",
+        "filename",
+        "mimeType",
+        "size",
+        "platformFileId"
+      ]
+    },
     "conversationRecord": {
       "required": [
         "conversationKey",
@@ -82,6 +95,7 @@ export const DtoContract = {
     "sender",
     "text",
     "images",
+    "files",
     "workspace",
     "backendKind",
     "model",
@@ -91,7 +105,8 @@ export const DtoContract = {
     "accepted",
     "conversationKey",
     "threadId",
-    "turnId"
+    "turnId",
+    "savedFiles"
   ],
   "approvalRequestedEvent": [
     "eventId",

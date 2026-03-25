@@ -12,6 +12,10 @@
       "required": ["url"],
       "optional": ["mimeType", "filename", "width", "height", "size"]
     },
+    "fileInput": {
+      "required": ["source"],
+      "optional": ["url", "localPath", "filename", "mimeType", "size", "platformFileId"]
+    },
     "conversationRecord": {
       "required": ["conversationKey", "platform", "scope", "externalId", "workspace", "backendKind", "createdAt", "updatedAt"],
       "optional": ["threadId"]
@@ -30,6 +34,7 @@
     "sender",
     "text",
     "images",
+    "files",
     "workspace",
     "backendKind",
     "model",
@@ -39,7 +44,8 @@
     "accepted",
     "conversationKey",
     "threadId",
-    "turnId"
+    "turnId",
+    "savedFiles"
   ],
   "approvalRequestedEvent": [
     "eventId",

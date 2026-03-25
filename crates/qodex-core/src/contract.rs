@@ -228,6 +228,7 @@ mod tests {
             "sender",
             "text",
             "images",
+            "files",
             "workspace",
             "backendKind",
             "model",
@@ -244,7 +245,13 @@ mod tests {
             send_message_params
         );
 
-        let send_message_response = vec!["accepted", "conversationKey", "threadId", "turnId"];
+        let send_message_response = vec![
+            "accepted",
+            "conversationKey",
+            "threadId",
+            "turnId",
+            "savedFiles",
+        ];
         assert_eq!(
             contract
                 .get("sendMessageResponse")

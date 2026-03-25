@@ -1,6 +1,9 @@
 use std::time::{Duration, Instant};
 
 use serde_json::json;
+use tempfile::tempdir;
+use tokio::fs;
+use url::Url;
 
 use super::backend_events::{
     parse_backend_server_request, BackendNotification, ParsedBackendEvent,
@@ -11,7 +14,7 @@ use crate::db::MemoryScopeType;
 use crate::db::{REDACTED_APPROVAL_PAYLOAD_JSON, REDACTED_MESSAGE_CONTENT};
 use crate::protocol::{
     ConversationSummaryClearParams, ConversationSummaryGetParams, ConversationSummaryUpsertParams,
-    MemoryForgetParams, MemoryListParams, MemoryLocator, MemoryProfileUpsertParams,
+    FileInput, MemoryForgetParams, MemoryListParams, MemoryLocator, MemoryProfileUpsertParams,
     MemoryRememberParams, PromptHintAddParams, PromptHintRemoveParams,
 };
 
@@ -141,6 +144,239 @@ async fn send_message_forwards_image_urls_to_codex_turn_start() {
             "thread-test-1".to_string(),
             "describe this image".to_string(),
             vec!["https://cdn.example.com/example.png".to_string()],
+        )]
+    );
+}
+
+#[tokio::test]
+async fn send_message_saves_remote_inbound_files_into_workspace() {
+    let workspace_dir = tempdir().expect("workspace tempdir");
+    let source_dir = tempdir().expect("source tempdir");
+    let workspace = workspace_dir.path().to_string_lossy().into_owned();
+    let source_path = source_dir.path().join("notes.pdf");
+    fs::write(&source_path, b"pdf-bytes")
+        .await
+        .expect("source file written");
+    let harness = create_harness(&[workspace.as_str()]).await;
+
+    let mut params = build_message("qqbot:group:file-demo", "收到文件", Some(workspace.as_str()));
+    params.files = vec![FileInput {
+        source: "remote".to_string(),
+        url: Some(
+            Url::from_file_path(&source_path)
+                .expect("file url")
+                .to_string(),
+        ),
+        local_path: None,
+        filename: Some("notes.pdf".to_string()),
+        mime_type: Some("application/pdf".to_string()),
+        size: None,
+        platform_file_id: None,
+    }];
+
+    let response = harness
+        .service
+        .send_message(params)
+        .await
+        .expect("send with remote file succeeds");
+
+    assert_eq!(response.saved_files.len(), 1);
+    let saved = &response.saved_files[0];
+    assert_eq!(saved.status, "saved");
+    assert_eq!(saved.filename.as_deref(), Some("notes.pdf"));
+    let saved_path = saved.saved_path.as_deref().expect("saved path");
+    assert!(saved_path.contains("/uploadfile/"));
+    let content = fs::read(saved_path).await.expect("saved file exists");
+    assert_eq!(content, b"pdf-bytes");
+    assert!(
+        !workspace_dir
+            .path()
+            .join(".qodex")
+            .join("inbox")
+            .join("qqbot:group:file-demo")
+            .join("notes.pdf")
+            .exists()
+    );
+}
+
+#[tokio::test]
+async fn send_message_copies_local_inbound_files_into_workspace() {
+    let workspace_dir = tempdir().expect("workspace tempdir");
+    let source_dir = tempdir().expect("source tempdir");
+    let workspace = workspace_dir.path().to_string_lossy().into_owned();
+    let source_path = source_dir.path().join("report.txt");
+    fs::write(&source_path, b"hello local file")
+        .await
+        .expect("source file written");
+    let harness = create_harness(&[workspace.as_str()]).await;
+
+    let mut params = build_message("qqbot:group:local-file-demo", "收到本地文件", Some(workspace.as_str()));
+    params.files = vec![FileInput {
+        source: "downloaded".to_string(),
+        url: None,
+        local_path: Some(source_path.to_string_lossy().into_owned()),
+        filename: Some("report.txt".to_string()),
+        mime_type: Some("text/plain".to_string()),
+        size: None,
+        platform_file_id: None,
+    }];
+
+    let response = harness
+        .service
+        .send_message(params)
+        .await
+        .expect("send with local file succeeds");
+
+    let saved_path = response.saved_files[0]
+        .saved_path
+        .as_deref()
+        .expect("saved path");
+    assert_eq!(
+        fs::read_to_string(saved_path).await.expect("saved file readable"),
+        "hello local file"
+    );
+    assert_eq!(
+        fs::read_to_string(&source_path)
+            .await
+            .expect("source file preserved"),
+        "hello local file"
+    );
+}
+
+#[tokio::test]
+async fn save_files_creates_conversation_and_saves_image_inputs() {
+    let workspace_dir = tempdir().expect("workspace tempdir");
+    let source_dir = tempdir().expect("source tempdir");
+    let workspace = workspace_dir.path().to_string_lossy().into_owned();
+    let source_path = source_dir.path().join("screenshot.png");
+    fs::write(&source_path, b"png-data")
+        .await
+        .expect("source file written");
+    let harness = create_harness(&[workspace.as_str()]).await;
+
+    let response = harness
+        .service
+        .save_files(crate::protocol::SaveFilesParams {
+            conversation: crate::protocol::ConversationRef {
+                conversation_key: "qqbot:group:save-files-demo".to_string(),
+                platform: "qqbot".to_string(),
+                scope: "group".to_string(),
+                external_id: "save-files-demo".to_string(),
+            },
+            files: vec![FileInput {
+                source: "remote".to_string(),
+                url: Some(
+                    Url::from_file_path(&source_path)
+                        .expect("file url")
+                        .to_string(),
+                ),
+                local_path: None,
+                filename: Some("screenshot.png".to_string()),
+                mime_type: Some("image/png".to_string()),
+                size: None,
+                platform_file_id: None,
+            }],
+            workspace: Some(workspace.clone()),
+            backend_kind: None,
+        })
+        .await
+        .expect("save files succeeds");
+
+    assert_eq!(response.conversation_key, "qqbot:group:save-files-demo");
+    assert_eq!(response.saved_files.len(), 1);
+    let saved_path = response.saved_files[0]
+        .saved_path
+        .as_deref()
+        .expect("saved path");
+    assert!(saved_path.contains("/uploadfile/"));
+    assert_eq!(
+        fs::read(saved_path).await.expect("saved file exists"),
+        b"png-data"
+    );
+}
+
+#[tokio::test]
+async fn send_message_suffixes_duplicate_uploaded_filenames() {
+    let workspace_dir = tempdir().expect("workspace tempdir");
+    let source_dir = tempdir().expect("source tempdir");
+    let workspace = workspace_dir.path().to_string_lossy().into_owned();
+    let source_path = source_dir.path().join("notes.pdf");
+    fs::write(&source_path, b"duplicate-file")
+        .await
+        .expect("source file written");
+    let destination_dir = workspace_dir.path().join("uploadfile").join(today_folder_name());
+    fs::create_dir_all(&destination_dir)
+        .await
+        .expect("destination dir created");
+    fs::write(destination_dir.join("notes.pdf"), b"existing")
+        .await
+        .expect("existing file written");
+    let harness = create_harness(&[workspace.as_str()]).await;
+
+    let mut params =
+        build_message("qqbot:group:duplicate-file-demo", "收到重复文件", Some(workspace.as_str()));
+    params.files = vec![FileInput {
+        source: "remote".to_string(),
+        url: Some(
+            Url::from_file_path(&source_path)
+                .expect("file url")
+                .to_string(),
+        ),
+        local_path: None,
+        filename: Some("notes.pdf".to_string()),
+        mime_type: Some("application/pdf".to_string()),
+        size: None,
+        platform_file_id: None,
+    }];
+
+    let response = harness
+        .service
+        .send_message(params)
+        .await
+        .expect("send with duplicate file succeeds");
+
+    let saved_path = response.saved_files[0]
+        .saved_path
+        .as_deref()
+        .expect("saved path");
+    assert!(saved_path.ends_with("notes-2.pdf"));
+}
+
+#[tokio::test]
+async fn send_message_continues_when_file_materialization_fails() {
+    let workspace_dir = tempdir().expect("workspace tempdir");
+    let workspace = workspace_dir.path().to_string_lossy().into_owned();
+    let harness = create_harness(&[workspace.as_str()]).await;
+
+    let mut params = build_message(
+        "qqbot:group:file-failure-demo",
+        "即使文件失败也继续",
+        Some(workspace.as_str()),
+    );
+    params.files = vec![FileInput {
+        source: "downloaded".to_string(),
+        url: None,
+        local_path: Some("/path/that/does/not/exist.txt".to_string()),
+        filename: Some("missing.txt".to_string()),
+        mime_type: Some("text/plain".to_string()),
+        size: None,
+        platform_file_id: None,
+    }];
+
+    let response = harness
+        .service
+        .send_message(params)
+        .await
+        .expect("send still succeeds");
+
+    assert_eq!(response.saved_files.len(), 1);
+    assert_eq!(response.saved_files[0].status, "failed");
+    assert_eq!(
+        harness.mock.start_turn_calls.lock().await.clone(),
+        vec![(
+            "thread-test-1".to_string(),
+            "即使文件失败也继续".to_string(),
+            Vec::new(),
         )]
     );
 }
@@ -1563,4 +1799,8 @@ async fn pending_deliveries_are_listed_and_acknowledged() {
         .expect("pending deliveries reload")
         .pending
         .is_empty());
+}
+
+fn today_folder_name() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
 }

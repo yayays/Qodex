@@ -46,6 +46,15 @@ export function createAdapter(params: {
       senderName?: string;
       text: string;
       replyToId?: string;
+      files?: Array<{
+        source: 'remote' | 'downloaded';
+        url?: string;
+        localPath?: string;
+        filename?: string;
+        mimeType?: string;
+        size?: number;
+        platformFileId?: string;
+      }>;
     }): Promise<void>;
   };
 }) {
@@ -81,6 +90,42 @@ export function createAdapter(params: {
           senderName: typeof record.sender_name === 'string' ? record.sender_name : undefined,
           text: String(record.text ?? ''),
           replyToId: typeof record.reply_to_id === 'string' ? record.reply_to_id : undefined,
+          files: Array.isArray(record.files)
+            ? record.files.map((file) => {
+              const typedFile = file as Record<string, unknown>;
+              const url = typeof typedFile.url === 'string' ? typedFile.url : undefined;
+              const localPath =
+                typeof typedFile.local_path === 'string'
+                  ? typedFile.local_path
+                  : typeof typedFile.localPath === 'string'
+                    ? typedFile.localPath
+                    : undefined;
+              const filename =
+                typeof typedFile.filename === 'string' ? typedFile.filename : undefined;
+              const mimeType =
+                typeof typedFile.mime_type === 'string'
+                  ? typedFile.mime_type
+                  : typeof typedFile.mimeType === 'string'
+                    ? typedFile.mimeType
+                    : undefined;
+              const size = typeof typedFile.size === 'number' ? typedFile.size : undefined;
+              const platformFileId =
+                typeof typedFile.platform_file_id === 'string'
+                  ? typedFile.platform_file_id
+                  : typeof typedFile.platformFileId === 'string'
+                    ? typedFile.platformFileId
+                    : undefined;
+              return {
+                source: typedFile.source === 'downloaded' ? 'downloaded' : 'remote',
+                ...(url ? { url } : {}),
+                ...(localPath ? { localPath } : {}),
+                ...(filename ? { filename } : {}),
+                ...(mimeType ? { mimeType } : {}),
+                ...(typeof size === 'number' ? { size } : {}),
+                ...(platformFileId ? { platformFileId } : {}),
+              };
+            })
+            : undefined,
         });
       }
     },

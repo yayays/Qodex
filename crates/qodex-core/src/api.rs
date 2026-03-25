@@ -25,7 +25,7 @@ use crate::{
         ConversationSummaryUpsertParams, DeliveryAckParams, MemoryForgetParams, MemoryListParams,
         MemoryProfileGetParams, MemoryProfileUpsertParams, MemoryRememberParams,
         PromptHintAddParams, PromptHintRemoveParams, RpcError, RpcFailure, RpcNotification,
-        RpcRequest, RpcSuccess, SendMessageParams, JSONRPC_VERSION,
+        RpcRequest, RpcSuccess, SaveFilesParams, SendMessageParams, JSONRPC_VERSION,
     },
     service::AppService,
 };
@@ -161,6 +161,16 @@ async fn dispatch_request(service: &AppService, text: &str) -> Option<String> {
                 .and_then(|params| async {
                     service
                         .send_message(params)
+                        .await
+                        .map(|v| serde_json::to_value(v).unwrap())
+                })
+                .await
+        }
+        methods::SAVE_FILES => {
+            parse_params::<SaveFilesParams>(&request.params)
+                .and_then(|params| async {
+                    service
+                        .save_files(params)
                         .await
                         .map(|v| serde_json::to_value(v).unwrap())
                 })

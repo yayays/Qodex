@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createCipheriv } from 'node:crypto';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -555,6 +556,84 @@ test('tencent adapter prefers direct download urls over opaque image tokens', as
   }
 });
 
+test('tencent adapter downloads and decrypts inbound image media references', async () => {
+  const configDir = await mkdtemp(join(tmpdir(), 'qodex-wechat-tencent-image-cdn-'));
+  const plaintext = Buffer.from('wechat-image-bytes');
+  const aesKeyHex = '00112233445566778899aabbccddeeff';
+  const encrypted = encryptAesEcbForTest(plaintext, Buffer.from(aesKeyHex, 'hex'));
+  const fetchMock = createFetchMock([
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [
+          {
+            from_user_id: 'wx-user-image-cdn',
+            create_time_ms: 1700000000005,
+            context_token: 'ctx-image-cdn',
+            item_list: [
+              {
+                type: 2,
+                image_item: {
+                  aeskey: aesKeyHex,
+                  media: {
+                    encrypt_query_param: 'enc-param-1',
+                  },
+                  hd_size: plaintext.length,
+                },
+              },
+            ],
+          },
+        ],
+        get_updates_buf: 'sync-image-cdn-next',
+      },
+    },
+    {
+      match: 'https://novac2c.cdn.weixin.qq.com/c2c/download?encrypted_query_param=enc-param-1',
+      rawBody: encrypted,
+      contentType: 'application/octet-stream',
+    },
+    {
+      match: '/ilink/bot/getupdates',
+      response: {
+        ret: 0,
+        msgs: [],
+        get_updates_buf: 'sync-image-cdn-next',
+      },
+    },
+  ]);
+
+  const events = createHostRecorder();
+  const restore = installFetchMock(fetchMock);
+  try {
+    const adapter = await createAdapter({
+      config: {
+        api_base_url: 'https://ilinkai.weixin.qq.com',
+        token: 'saved-token-image-cdn',
+        state_dir: './state',
+      },
+      configDir,
+      instanceId: 'wechat',
+      accountId: 'wechat-main',
+      log: silentLogger,
+      abortSignal: new AbortController().signal,
+      host: events.host,
+    });
+
+    await adapter.start();
+    await waitFor(() => events.inbound.length === 1);
+    await adapter.stop?.();
+
+    assert.equal(events.inbound.length, 1);
+    assert.equal(events.inbound[0].images?.[0]?.size, plaintext.length);
+    assert.ok(events.inbound[0].images?.[0]?.localPath);
+    const saved = await readFile(events.inbound[0].images?.[0]?.localPath ?? '');
+    assert.deepEqual(saved, plaintext);
+  } finally {
+    restore();
+  }
+});
+
 test('tencent adapter resolves relative image urls against the active base url', async () => {
   const configDir = await mkdtemp(join(tmpdir(), 'qodex-wechat-tencent-relative-image-'));
   const fetchMock = createFetchMock([
@@ -955,6 +1034,8 @@ function createFetchMock(
     response: unknown;
     status?: number;
     error?: Error;
+    rawBody?: Uint8Array | Buffer | string;
+    contentType?: string;
   }>,
 ) {
   const calls: FetchCall[] = [];
@@ -977,6 +1058,12 @@ function createFetchMock(
           if (route.error) {
             throw route.error;
           }
+          if (route.rawBody != null) {
+            return new Response(route.rawBody, {
+              status: route.status ?? 200,
+              headers: route.contentType ? { 'content-type': route.contentType } : undefined,
+            });
+          }
           return new Response(JSON.stringify(route.response), {
             status: route.status ?? 200,
             headers: { 'content-type': 'application/json' },
@@ -987,6 +1074,11 @@ function createFetchMock(
       throw new Error(`unexpected fetch request: ${url}`);
     },
   };
+}
+
+function encryptAesEcbForTest(plaintext: Buffer, key: Buffer): Buffer {
+  const cipher = createCipheriv('aes-128-ecb', key, null);
+  return Buffer.concat([cipher.update(plaintext), cipher.final()]);
 }
 
 function installFetchMock(fetchMock: { fetch: typeof fetch }) {

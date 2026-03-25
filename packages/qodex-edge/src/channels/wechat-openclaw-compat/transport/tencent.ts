@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createDecipheriv, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import type { FileInput } from '../../../core-protocol.js';
@@ -16,6 +16,7 @@ interface TencentSessionState {
 
 interface TencentAdapterConfig {
   apiBaseUrl: string;
+  cdnBaseUrl: string;
   stateDir: string;
   requestTimeoutMs: number;
   loginWaitTimeoutMs: number;
@@ -23,6 +24,7 @@ interface TencentAdapterConfig {
 }
 
 const DEFAULT_API_BASE_URL = 'https://ilinkai.weixin.qq.com';
+const DEFAULT_CDN_BASE_URL = 'https://novac2c.cdn.weixin.qq.com/c2c';
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_LOGIN_WAIT_TIMEOUT_MS = 480_000;
 const UNSUPPORTED_WECHAT_IMAGE_URL_ERROR =
@@ -84,6 +86,7 @@ export async function createAdapter(
           params,
           state,
           fileStore,
+          config.cdnBaseUrl,
           config.stateDir,
           config.requestTimeoutMs,
         ).catch((error) => {
@@ -139,6 +142,7 @@ export async function createAdapter(
             params,
             state,
             fileStore,
+            config.cdnBaseUrl,
             config.stateDir,
             config.requestTimeoutMs,
           ).catch((error) => {
@@ -215,6 +219,7 @@ async function runMonitorLoop(
     contextTokens: Map<string, string>;
   },
   fileStore: ReturnType<typeof createFileStore>,
+  cdnBaseUrl: string,
   stateDir: string,
   requestTimeoutMs: number,
 ): Promise<void> {
@@ -257,6 +262,7 @@ async function runMonitorLoop(
         message,
         state.session.baseUrl,
         state.session.token,
+        cdnBaseUrl,
         stateDir,
         requestTimeoutMs,
       );
@@ -287,6 +293,7 @@ async function toInboundEvent(
   message: Record<string, unknown>,
   baseUrl: string,
   token: string | undefined,
+  cdnBaseUrl: string,
   stateDir: string,
   requestTimeoutMs: number,
 ): Promise<WechatCompatInboundEvent | undefined> {
@@ -297,6 +304,7 @@ async function toInboundEvent(
     message.item_list,
     baseUrl,
     token,
+    cdnBaseUrl,
     stateDir,
     requestTimeoutMs,
   );
@@ -366,6 +374,7 @@ function extractInboundImages(
   itemListValue: unknown,
   baseUrl: string,
   token: string | undefined,
+  cdnBaseUrl: string,
   stateDir: string,
   requestTimeoutMs: number,
 ): Promise<ChannelInboundImage[]> {
@@ -378,7 +387,7 @@ function extractInboundImages(
       if (!isRecord(item)) {
         return undefined;
       }
-      return readInboundImage(item, baseUrl, token, stateDir, requestTimeoutMs);
+      return readInboundImage(item, baseUrl, token, cdnBaseUrl, stateDir, requestTimeoutMs);
     }),
   ).then((images) =>
     images.filter((image): image is ChannelInboundImage => Boolean(image)),
@@ -429,25 +438,53 @@ function readInboundImage(
   item: Record<string, unknown>,
   baseUrl: string,
   token: string | undefined,
+  cdnBaseUrl: string,
   stateDir: string,
   requestTimeoutMs: number,
 ): Promise<ChannelInboundImage | undefined> {
-  const payload = resolveAttachmentPayload(item);
+  const payload = resolveImagePayload(item) ?? resolveAttachmentPayload(item);
   if (!payload) {
     return Promise.resolve(undefined);
   }
 
-  const rawUrl = readRawAttachmentUrl(payload);
-  const fileUrl = readAttachmentUrl(payload, baseUrl);
   const filename =
     readString(payload.file_name) ?? readString(payload.filename) ?? readString(payload.name);
   const mimeType =
     readString(payload.mime_type) ?? readString(payload.content_type) ?? readString(payload.mime);
+  const size = readAttachmentSize(payload);
+  const encryptedMedia = readEncryptedImageMedia(payload);
+  if (encryptedMedia) {
+    const displayUrl = buildCdnDownloadUrl(encryptedMedia.encryptQueryParam, cdnBaseUrl);
+    return downloadAndDecryptInboundImage(
+      encryptedMedia,
+      cdnBaseUrl,
+      stateDir,
+      filename,
+      mimeType,
+      requestTimeoutMs,
+    )
+      .then((localPath) => ({
+        url: displayUrl,
+        ...(filename ? { filename } : {}),
+        ...(mimeType ? { mimeType } : {}),
+        ...(typeof size === 'number' ? { size } : {}),
+        ...(localPath ? { localPath } : {}),
+      }))
+      .catch((error) => ({
+        url: displayUrl,
+        ...(filename ? { filename } : {}),
+        ...(mimeType ? { mimeType } : {}),
+        ...(typeof size === 'number' ? { size } : {}),
+        downloadError: formatError(error),
+      }));
+  }
+
+  const rawUrl = readRawAttachmentUrl(payload);
+  const fileUrl = readAttachmentUrl(payload, baseUrl);
   if (!isImageLikeAttachmentItem(item) && !looksLikeImageFile(fileUrl ?? rawUrl ?? '', filename, mimeType)) {
     return Promise.resolve(undefined);
   }
 
-  const size = readNumber(payload.file_size) ?? readNumber(payload.size);
   if (!fileUrl) {
     return Promise.resolve({
       url: rawUrl ?? 'wechat-inbound-image',
@@ -475,6 +512,24 @@ function readInboundImage(
     }));
 }
 
+function resolveImagePayload(item: Record<string, unknown>): Record<string, unknown> | undefined {
+  const candidates = [item.image_item, item.img_item, item.pic_item, item];
+  for (const candidate of candidates) {
+    if (!isRecord(candidate)) {
+      continue;
+    }
+    if (
+      readRawAttachmentUrl(candidate)
+      || readEncryptedImageMedia(candidate)
+      || readString(candidate.local_path)
+      || readString(candidate.path)
+    ) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
 function resolveAttachmentPayload(item: Record<string, unknown>): Record<string, unknown> | undefined {
   const candidates = [
     item.file_item,
@@ -492,6 +547,14 @@ function resolveAttachmentPayload(item: Record<string, unknown>): Record<string,
     }
   }
   return undefined;
+}
+
+function readAttachmentSize(payload: Record<string, unknown>): number | undefined {
+  return readNumber(payload.file_size)
+    ?? readNumber(payload.size)
+    ?? readNumber(payload.hd_size)
+    ?? readNumber(payload.mid_size)
+    ?? readNumber(payload.thumb_size);
 }
 
 function isImageLikeAttachmentItem(item: Record<string, unknown>): boolean {
@@ -528,6 +591,27 @@ function readAttachmentUrl(
   }
 
   return undefined;
+}
+
+function readEncryptedImageMedia(
+  payload: Record<string, unknown>,
+): { encryptQueryParam: string; aesKeyBase64?: string } | undefined {
+  const media = isRecord(payload.media) ? payload.media : undefined;
+  const encryptQueryParam = readString(media?.encrypt_query_param);
+  if (!encryptQueryParam) {
+    return undefined;
+  }
+
+  const aesKeyHex = readString(payload.aeskey);
+  const mediaAesKey = readString(media?.aes_key);
+  const aesKeyBase64 = aesKeyHex
+    ? Buffer.from(aesKeyHex, 'hex').toString('base64')
+    : mediaAesKey;
+
+  return {
+    encryptQueryParam,
+    ...(aesKeyBase64 ? { aesKeyBase64 } : {}),
+  };
 }
 
 function resolveAttachmentUrl(
@@ -677,6 +761,78 @@ async function maybeDownloadInboundImage(
   const targetPath = join(targetDir, `${Date.now()}-${randomUUID()}${extension}`);
   await writeFile(targetPath, bytes);
   return targetPath;
+}
+
+async function downloadAndDecryptInboundImage(
+  media: { encryptQueryParam: string; aesKeyBase64?: string },
+  cdnBaseUrl: string,
+  stateDir: string,
+  filename: string | undefined,
+  mimeType: string | undefined,
+  requestTimeoutMs: number,
+): Promise<string> {
+  const url = buildCdnDownloadUrl(media.encryptQueryParam, cdnBaseUrl);
+  const response = await fetch(url, {
+    method: 'GET',
+    signal: AbortSignal.timeout(requestTimeoutMs),
+  });
+  if (!response.ok) {
+    throw new Error(`failed to download inbound image: ${response.status}`);
+  }
+
+  const encryptedBytes = Buffer.from(await response.arrayBuffer());
+  const bytes = media.aesKeyBase64
+    ? decryptAesEcb(encryptedBytes, parseWechatAesKey(media.aesKeyBase64))
+    : encryptedBytes;
+  const targetDir = resolve(stateDir, 'inbound-media');
+  await mkdir(targetDir, { recursive: true });
+  const extension = inferImageExtension(filename, mimeType);
+  const targetPath = join(targetDir, `${Date.now()}-${randomUUID()}${extension}`);
+  await writeFile(targetPath, bytes);
+  return targetPath;
+}
+
+function buildCdnDownloadUrl(encryptQueryParam: string, cdnBaseUrl: string): string {
+  return `${cdnBaseUrl.replace(/\/+$/, '')}/download?encrypted_query_param=${encodeURIComponent(encryptQueryParam)}`;
+}
+
+function parseWechatAesKey(aesKeyBase64: string): Buffer {
+  const decoded = Buffer.from(aesKeyBase64, 'base64');
+  if (decoded.length === 16) {
+    return decoded;
+  }
+  if (decoded.length === 32 && /^[0-9a-fA-F]{32}$/.test(decoded.toString('ascii'))) {
+    return Buffer.from(decoded.toString('ascii'), 'hex');
+  }
+  throw new Error(`invalid WeChat image aes key length: ${decoded.length}`);
+}
+
+function decryptAesEcb(ciphertext: Buffer, key: Buffer): Buffer {
+  const decipher = createDecipheriv('aes-128-ecb', key, null);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
+
+function inferImageExtension(
+  filename: string | undefined,
+  mimeType: string | undefined,
+): string {
+  const filenameExtension = extname(filename ?? '');
+  if (filenameExtension) {
+    return filenameExtension;
+  }
+  const normalizedMimeType = mimeType?.toLowerCase();
+  switch (normalizedMimeType) {
+    case 'image/png':
+      return '.png';
+    case 'image/webp':
+      return '.webp';
+    case 'image/gif':
+      return '.gif';
+    case 'image/bmp':
+      return '.bmp';
+    default:
+      return '.jpg';
+  }
 }
 
 function looksLikeImageFile(
@@ -856,6 +1012,7 @@ function createFileStore(stateDir: string, accountId: string) {
 function resolveConfig(params: CreateWechatCompatAdapterParams): TencentAdapterConfig {
   return {
     apiBaseUrl: readString(params.config.api_base_url) ?? DEFAULT_API_BASE_URL,
+    cdnBaseUrl: readString(params.config.cdn_base_url) ?? DEFAULT_CDN_BASE_URL,
     stateDir: resolve(
       params.configDir,
       readString(params.config.state_dir) ?? './data/wechat-openclaw-compat',

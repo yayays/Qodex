@@ -10,6 +10,7 @@ import type {
   PlatformMessage,
   QodexPluginExtension,
 } from '../src/index.js';
+import type { ChannelRuntimeStatus } from '../src/plugin-contract.js';
 
 class RecordingRuntime {
   readonly messages: PlatformMessage[] = [];
@@ -19,6 +20,24 @@ class RecordingRuntime {
     this.messages.push(message);
     this.sinks.push(sink);
   }
+}
+
+class RecordingLogger {
+  readonly infoLogs: Array<{ obj?: Record<string, unknown>; msg?: string }> = [];
+
+  child() {
+    return this;
+  }
+
+  info(obj: Record<string, unknown>, msg?: string) {
+    this.infoLogs.push({ obj, msg });
+  }
+
+  warn() {}
+
+  error() {}
+
+  debug() {}
 }
 
 test('routes multiple active instances with the same plugin independently', async () => {
@@ -297,6 +316,64 @@ test('rejects plugin extensions that do not support the host api version', async
   );
 });
 
+test('summarizes channel status logs into grouped fields', async () => {
+  const runtime = new RecordingRuntime();
+  const logger = new RecordingLogger();
+  const host = new QodexChannelHost(
+    runtime as any,
+    logger as any,
+    buildConfig(),
+  );
+
+  await host.registerExtension(
+    createTestExtension(
+      createStatusPlugin({
+        connected: true,
+        appId: '1903592555',
+        allowFrom: [],
+        gatewayUrl: 'wss://api.sgroup.qq.com/websocket',
+        gatewayIntent: 1107300352,
+        mode: 'websocket',
+        sessionId: 'session-1',
+        botUserId: 'bot-user-1',
+        readyAt: 1774503811671,
+        lastHeartbeatAckAt: 1774527557278,
+        lastSeq: 13,
+        resumedAt: 1774527227295,
+      }),
+    ),
+    'test:qqbot',
+  );
+  await host.startConfiguredChannels();
+
+  const entry = logger.infoLogs.find((item) => item.msg?.startsWith('channel status updated:'));
+  assert.ok(entry);
+  assert.equal(entry.obj?.instanceId, 'qq_primary');
+  assert.equal(entry.obj?.channelId, 'qqbot');
+  assert.deepEqual(entry.obj?.connection, {
+    connected: true,
+    mode: 'websocket',
+  });
+  assert.deepEqual(entry.obj?.gateway, {
+    url: 'wss://api.sgroup.qq.com/websocket',
+    intent: 1107300352,
+  });
+  assert.deepEqual(entry.obj?.session, {
+    appId: '1903592555',
+    sessionId: 'session-1',
+    botUserId: 'bot-user-1',
+    readyAt: 1774503811671,
+    resumedAt: 1774527227295,
+    lastHeartbeatAckAt: 1774527557278,
+    lastSeq: 13,
+  });
+  assert.deepEqual(entry.obj?.filters, {
+    allowFromCount: 0,
+  });
+
+  await host.stop();
+});
+
 function buildConfig(): QodexConfig {
   return {
     server: {
@@ -420,6 +497,17 @@ function createTestPlugin(
           text: params.text,
         });
         return {};
+      },
+    },
+  };
+}
+
+function createStatusPlugin(status: ChannelRuntimeStatus): ChannelPlugin {
+  return {
+    ...createTestPlugin([]),
+    gateway: {
+      async startAccount(context) {
+        context.setStatus(status);
       },
     },
   };

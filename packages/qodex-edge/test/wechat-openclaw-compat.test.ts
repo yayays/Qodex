@@ -278,10 +278,10 @@ test('wechat compat channel logs login status transitions so qr confirmation is 
 
   await host.startConfiguredChannels();
 
-  const statusLogs = logger.infoLogs.filter((entry) => entry.msg === 'channel status updated');
-  assert.ok(statusLogs.some((entry) => entry.obj?.loginState === 'waitingForScan'));
-  assert.ok(statusLogs.some((entry) => entry.obj?.loginState === 'connected'));
-  assert.ok(statusLogs.some((entry) => entry.obj?.connected === true));
+  const statusLogs = logger.infoLogs.filter((entry) => entry.msg?.startsWith('channel status updated'));
+  assert.ok(statusLogs.some((entry) => entry.obj?.connection?.loginState === 'waitingForScan'));
+  assert.ok(statusLogs.some((entry) => entry.obj?.connection?.loginState === 'connected'));
+  assert.ok(statusLogs.some((entry) => entry.obj?.connection?.connected === true));
 
   await host.stop();
 });

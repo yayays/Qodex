@@ -398,19 +398,80 @@ export class QodexChannelHost {
       runtime: this.runtimeApi,
       getStatus: () => instance.status,
       setStatus: (status: ChannelRuntimeStatus) => {
+        const { message, fields } = summarizeChannelStatus(status);
         this.logger.info(
           {
             instanceId: instance.entry.instanceId,
             channelId: instance.plugin.id,
             accountId: instance.entry.accountId,
-            ...status,
+            ...fields,
           },
-          'channel status updated',
+          message,
         );
         instance.status = status;
       },
     });
   }
+}
+
+function summarizeChannelStatus(
+  status: ChannelRuntimeStatus,
+): { message: string; fields: Record<string, unknown> } {
+  const connected = readBoolean(status.connected);
+  const mode = readString(status.mode);
+  const loginState = readString(status.loginState);
+  const lastError = readString(status.lastError);
+  const connection = compactRecord({
+    connected,
+    ...(mode ? { mode } : {}),
+    ...(loginState ? { loginState } : {}),
+    ...(lastError ? { lastError } : {}),
+  });
+  const gateway = compactRecord({
+    url: readString(status.gatewayUrl),
+    intent: readNumber(status.gatewayIntent),
+  });
+  const session = compactRecord({
+    appId: readString(status.appId),
+    sessionId: readString(status.sessionId),
+    botUserId: readString(status.botUserId),
+    readyAt: readNumber(status.readyAt),
+    resumedAt: readNumber(status.resumedAt),
+    lastHeartbeatAckAt: readNumber(status.lastHeartbeatAckAt),
+    lastSeq: readNumber(status.lastSeq),
+  });
+  const allowFrom = readStringArray(status.allowFrom);
+  const filters = allowFrom
+    ? compactRecord({
+        allowFromCount: allowFrom.length,
+        ...(allowFrom.length > 0 ? { allowFromPreview: allowFrom.slice(0, 5) } : {}),
+      })
+    : undefined;
+  const details = compactRecord(
+    Object.fromEntries(
+      Object.entries(status).filter(([key]) => !KNOWN_STATUS_KEYS.has(key)),
+    ),
+  );
+  const summaryParts = [
+    connected === true ? 'connected' : connected === false ? 'disconnected' : undefined,
+    mode ? `via ${mode}` : undefined,
+    loginState ? `login=${loginState}` : undefined,
+    lastError ? `error=${lastError}` : undefined,
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    message:
+      summaryParts.length > 0
+        ? `channel status updated: ${summaryParts.join(' ')}`
+        : 'channel status updated',
+    fields: compactRecord({
+      ...(Object.keys(connection).length > 0 ? { connection } : {}),
+      ...(Object.keys(gateway).length > 0 ? { gateway } : {}),
+      ...(Object.keys(session).length > 0 ? { session } : {}),
+      ...(filters && Object.keys(filters).length > 0 ? { filters } : {}),
+      ...(Object.keys(details).length > 0 ? { details } : {}),
+    }),
+  };
 }
 
 function resolveCodexOverrides(
@@ -448,6 +509,44 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function compactRecord<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined),
+  ) as T;
+}
+
 function readString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
+
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+}
+
+const KNOWN_STATUS_KEYS = new Set([
+  'connected',
+  'loginState',
+  'lastError',
+  'mode',
+  'gatewayUrl',
+  'gatewayIntent',
+  'appId',
+  'sessionId',
+  'botUserId',
+  'readyAt',
+  'resumedAt',
+  'lastHeartbeatAckAt',
+  'lastSeq',
+  'allowFrom',
+]);

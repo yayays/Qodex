@@ -11,6 +11,8 @@ interface CreateLoggerOptions {
 }
 
 const RESERVED_LOG_KEYS = new Set(['level', 'time', 'msg', 'name']);
+const COMPACT_STATUS_MESSAGE_PREFIX = 'channel status updated';
+const COMPACT_STATUS_OMIT_KEYS = new Set(['channelId', 'instanceId', 'accountId']);
 
 export function createLogger(
   level = process.env.LOG_LEVEL ?? 'info',
@@ -58,6 +60,10 @@ export function formatPrettyLogLine(record: Record<string, unknown>): string {
   const scope = formatScope(record);
   const message = typeof record.msg === 'string' ? record.msg : '(no message)';
   const extras = Object.entries(record).filter(([key]) => !RESERVED_LOG_KEYS.has(key));
+  if (shouldFormatCompactPrettyLine(message)) {
+    const suffix = formatCompactPrettyFields(extras);
+    return `${timestamp} ${level} ${name}${scope} ${message}${suffix}\n`;
+  }
   const lines = [`${timestamp} ${level} ${name}${scope} ${message}`];
 
   for (const [key, value] of extras) {
@@ -65,6 +71,10 @@ export function formatPrettyLogLine(record: Record<string, unknown>): string {
   }
 
   return `${lines.join('\n')}\n`;
+}
+
+function shouldFormatCompactPrettyLine(message: string): boolean {
+  return message.startsWith(COMPACT_STATUS_MESSAGE_PREFIX);
 }
 
 function createPrettyDestination(destination: NodeJS.WritableStream): Writable {
@@ -98,6 +108,63 @@ function formatPrettyChunk(line: string): string {
   } catch {
     return `${line}\n`;
   }
+}
+
+function formatCompactPrettyFields(
+  extras: Array<[string, unknown]>,
+): string {
+  const parts = extras.flatMap(([key, value]) =>
+    COMPACT_STATUS_OMIT_KEYS.has(key) ? [] : flattenCompactPrettyField(key, value),
+  );
+  return parts.length > 0 ? ` ${parts.join(' ')}` : '';
+}
+
+function flattenCompactPrettyField(
+  key: string,
+  value: unknown,
+): string[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return [`${key}=${formatCompactArray(value)}`];
+  }
+  if (isPlainObject(value)) {
+    return Object.entries(value).flatMap(([nestedKey, nestedValue]) =>
+      flattenCompactPrettyField(resolveCompactFieldKey(key, nestedKey), nestedValue),
+    );
+  }
+  return [`${key}=${formatCompactScalar(key, value)}`];
+}
+
+function resolveCompactFieldKey(parentKey: string, key: string): string {
+  switch (parentKey) {
+    case 'connection':
+    case 'session':
+    case 'filters':
+    case 'details':
+      return key;
+    case 'gateway':
+      if (key === 'url') {
+        return 'gateway';
+      }
+      if (key === 'intent') {
+        return 'gatewayIntent';
+      }
+      return `gateway${capitalize(key)}`;
+    default:
+      return `${parentKey}.${key}`;
+  }
+}
+
+function formatCompactArray(value: unknown[]): string {
+  if (value.length === 0) {
+    return '[]';
+  }
+  if (value.some((entry) => isPlainObject(entry) || Array.isArray(entry))) {
+    return JSON.stringify(value);
+  }
+  return `[${value.map((entry) => formatCompactValue('', entry, false)).join(',')}]`;
 }
 
 function formatPrettyField(
@@ -165,6 +232,39 @@ function formatPrettyScalar(key: string, value: unknown): string {
   return JSON.stringify(value);
 }
 
+function formatCompactScalar(key: string, value: unknown): string {
+  return formatCompactValue(key, value, false);
+}
+
+function formatCompactValue(
+  key: string,
+  value: unknown,
+  expandTimestamps: boolean,
+): string {
+  if (typeof value === 'string') {
+    return formatCompactString(value);
+  }
+  if (typeof value === 'number') {
+    if (looksLikeTimestampField(key, value)) {
+      return expandTimestamps
+        ? `${new Date(value).toISOString()} (${value})`
+        : new Date(value).toISOString();
+    }
+    return String(value);
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+  if (value === null) {
+    return 'null';
+  }
+  return JSON.stringify(value);
+}
+
+function formatCompactString(value: string): string {
+  return /[^\w./:@-]/.test(value) ? JSON.stringify(value) : value;
+}
+
 function formatLevel(value: unknown): string {
   switch (value) {
     case 10:
@@ -207,6 +307,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isTruthyEnv(value: string | undefined): boolean {
   return value === '1' || value === 'true';
+}
+
+function capitalize(value: string): string {
+  return value.length > 0 ? `${value[0].toUpperCase()}${value.slice(1)}` : value;
 }
 
 export type QodexLogger = ReturnType<typeof createLogger>;

@@ -26,7 +26,7 @@ interface ActiveTurnState {
   hasOutput: boolean;
 }
 
-type AutoApproveOverride = boolean;
+type ApprovalMode = 'all' | 'disabled';
 
 interface PendingImageState {
   savedFiles: SavedFileResult[];
@@ -42,7 +42,7 @@ export class RuntimeSessionState {
   readonly streamState = new Map<string, StreamState>();
   readonly activeTurns = new Map<string, ActiveTurnState>();
   readonly failedTurns = new Map<string, number>();
-  readonly autoApprovePermissions = new Map<string, AutoApproveOverride>();
+  readonly approvalModes = new Map<string, ApprovalMode>();
   readonly pendingImages = new Map<string, PendingImageState>();
   lastPrunedAt = 0;
 
@@ -129,15 +129,16 @@ export class RuntimeSessionState {
     }
   }
 
-  setAutoApprovePermissions(conversationKey: string, enabled: boolean): void {
-    this.autoApprovePermissions.set(conversationKey, enabled);
+  setApprovalMode(conversationKey: string, mode: ApprovalMode | 'default'): void {
+    if (mode === 'default') {
+      this.approvalModes.delete(conversationKey);
+      return;
+    }
+    this.approvalModes.set(conversationKey, mode);
   }
 
-  isAutoApprovePermissionsEnabled(
-    conversationKey: string,
-    defaultEnabled: boolean,
-  ): boolean {
-    return this.autoApprovePermissions.get(conversationKey) ?? defaultEnabled;
+  getApprovalMode(conversationKey: string): ApprovalMode | 'default' {
+    return this.approvalModes.get(conversationKey) ?? 'default';
   }
 
   registerActiveTurn(conversationKey: string, turnId: string): void {
@@ -233,9 +234,9 @@ export class RuntimeSessionState {
       }
     }
 
-    for (const conversationKey of this.autoApprovePermissions.keys()) {
+    for (const conversationKey of this.approvalModes.keys()) {
       if (!activeConversations.has(conversationKey) && !this.sinks.has(conversationKey)) {
-        this.autoApprovePermissions.delete(conversationKey);
+        this.approvalModes.delete(conversationKey);
       }
     }
 

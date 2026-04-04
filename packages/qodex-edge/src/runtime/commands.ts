@@ -356,52 +356,58 @@ export async function handleRuntimeCommand(
     case '/approveall': {
       const mode = (rest[0] ?? '').trim().toLowerCase();
       if (!mode) {
-        const enabled = deps.sessionState.isAutoApprovePermissionsEnabled(
-          conversationKey,
-          deps.config.edge.autoApprovePermissions,
-        );
+        const enabled = deps.sessionState.getApprovalMode(conversationKey) === 'all';
         await sink.sendText({
           conversationKey,
           kind: 'system',
           text: enabled
-            ? 'Auto-approve permissions is ON for this conversation.'
-            : 'Auto-approve permissions is OFF for this conversation.',
+            ? 'Approve-all is ON for this conversation.'
+            : 'Approve-all is OFF for this conversation.',
         });
         return;
       }
-      if (mode !== 'on' && mode !== 'off') {
+      if (mode !== 'on' && mode !== 'off' && mode !== 'now') {
         await sink.sendText({
           conversationKey,
           kind: 'error',
-          text: 'Usage: /approveall [on|off]',
+          text: 'Usage: /approveall [on|off|now]',
         });
         return;
       }
+
+      if (mode === 'now') {
+        const result = await resolveRuntimeApprovals(deps.core, conversationKey, 'accept');
+        await sink.sendText({
+          conversationKey,
+          kind: 'system',
+          text:
+            result.resolvedCount > 0
+              ? `Approved ${result.resolvedCount} pending approval(s). Approve-all remains OFF for this conversation.`
+              : 'No pending approvals found. Approve-all remains OFF for this conversation.',
+        });
+        return;
+      }
+
       const enabled = mode === 'on';
-      deps.sessionState.setAutoApprovePermissions(conversationKey, enabled);
+      deps.sessionState.setApprovalMode(conversationKey, enabled ? 'all' : 'disabled');
 
       if (!enabled) {
         await sink.sendText({
           conversationKey,
           kind: 'system',
-          text: 'Auto-approve permissions disabled for this conversation.',
+          text: 'Approve-all disabled for this conversation.',
         });
         return;
       }
 
-      const result = await resolveRuntimeApprovalsByKind(
-        deps.core,
-        conversationKey,
-        'permissions',
-        'accept',
-      );
+      const result = await resolveRuntimeApprovals(deps.core, conversationKey, 'accept');
       await sink.sendText({
         conversationKey,
         kind: 'system',
         text:
           result.resolvedCount > 0
-            ? `Auto-approve permissions enabled. Approved ${result.resolvedCount} pending permission request(s).`
-            : 'Auto-approve permissions enabled. Future permission requests will be approved automatically.',
+            ? `Approve-all enabled. Approved ${result.resolvedCount} pending approval(s).`
+            : 'Approve-all enabled. Future approval requests in this conversation will be approved automatically.',
       });
       return;
     }
@@ -719,19 +725,17 @@ export async function resolveRuntimeApproval(
   });
 }
 
-async function resolveRuntimeApprovalsByKind(
+async function resolveRuntimeApprovals(
   core: CoreClient,
   conversationKey: string,
-  kind: string,
   decision: ApprovalDecision,
 ): Promise<{ resolvedCount: number }> {
   const status = await core.status({ conversationKey });
-  const approvals = status.pendingApprovals.filter((approval) => approval.kind === kind);
-  for (const approval of approvals) {
+  for (const approval of status.pendingApprovals) {
     await core.respondApproval({
       approvalId: approval.approvalId,
       decision,
     });
   }
-  return { resolvedCount: approvals.length };
+  return { resolvedCount: status.pendingApprovals.length };
 }

@@ -180,7 +180,7 @@ export function renderHelp(
     '/hint <bot|workspace|user> <text>',
     '/unhint <hintId>',
     '/approve <approvalId> [session]',
-    '/approveall [on|off]',
+    '/approveall [on|off|now]',
     '/reject <approvalId>',
     `backend=${backendKind}`,
     `defaultWorkspace=${defaultWorkspace}`,

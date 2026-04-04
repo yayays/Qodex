@@ -367,6 +367,7 @@ test('help command surfaces the configured backend kind', async () => {
   assert.ok(helpReply);
   assert.match(helpReply.text, /backend=codex/);
   assert.match(helpReply.text, /defaultWorkspace=\/tmp\/qodex/);
+  assert.match(helpReply.text, /\/approveall \[on\|off\|now\]/);
 });
 
 test('help command honors per-message backend selection', async () => {
@@ -1260,7 +1261,7 @@ test('reject resolves approval by short id token', async () => {
   });
 });
 
-test('approveall toggles auto-approve and resolves pending permission approvals', async () => {
+test('approveall toggles session approve-all and resolves all pending approvals', async () => {
   const core = new MockCoreClient();
   core.statusResponse = {
     conversation: null,
@@ -1303,10 +1304,95 @@ test('approveall toggles auto-approve and resolves pending permission approvals'
       approvalId: 'perm-approval-1',
       decision: 'accept',
     },
+    {
+      approvalId: 'cmd-approval-1',
+      decision: 'accept',
+    },
   ]);
-  assert.match(messages[0].text, /Auto-approve permissions enabled/);
+  assert.match(messages[0].text, /Approve-all enabled/);
   assert.match(messages[1].text, /is ON/);
   assert.match(messages[2].text, /disabled/);
+});
+
+test('approveall now resolves current backlog without enabling future auto-approval', async () => {
+  const core = new MockCoreClient();
+  core.statusResponse = {
+    conversation: null,
+    pendingApprovals: [
+      {
+        approvalId: 'perm-approval-1',
+        requestId: 'request-1',
+        conversationKey: 'qqbot:group:approval-now-demo',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'item-1',
+        kind: 'permissions',
+        payloadJson: '{}',
+        status: 'pending',
+        createdAt: '2026-03-19T00:00:00.000Z',
+      },
+      {
+        approvalId: 'cmd-approval-1',
+        requestId: 'request-2',
+        conversationKey: 'qqbot:group:approval-now-demo',
+        threadId: 'thread-1',
+        turnId: 'turn-2',
+        itemId: 'item-2',
+        kind: 'commandExecution',
+        payloadJson: '{}',
+        status: 'pending',
+        createdAt: '2026-03-19T00:00:01.000Z',
+      },
+    ],
+  };
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+
+  runtime.attachHost({
+    resolveSinkForConversation() {
+      return sink;
+    },
+    listConversationChannels() {
+      return [];
+    },
+  });
+
+  await runtime.handleIncoming(
+    buildMessage('qqbot:group:approval-now-demo', '/approveall now'),
+    sink,
+  );
+  await runtime.handleIncoming(buildMessage('qqbot:group:approval-now-demo', '/approveall'), sink);
+
+  assert.deepEqual(core.respondApprovalCalls, [
+    {
+      approvalId: 'perm-approval-1',
+      decision: 'accept',
+    },
+    {
+      approvalId: 'cmd-approval-1',
+      decision: 'accept',
+    },
+  ]);
+  assert.match(messages[0].text, /Approved 2 pending approval\(s\)/);
+  assert.match(messages[0].text, /remains OFF/);
+  assert.match(messages[1].text, /is OFF/);
+
+  core.respondApprovalCalls = [];
+  await (runtime as any).handleApproval({
+    eventId: 'evt-now-1',
+    approvalId: 'approval-later-1',
+    conversationKey: 'qqbot:group:approval-now-demo',
+    threadId: 'thread-1',
+    turnId: 'turn-3',
+    kind: 'commandExecution',
+    reason: 'Need shell access',
+    summary: 'Command approval requested',
+    availableDecisions: ['accept', 'decline'],
+    payloadJson: JSON.stringify({ command: 'cargo test' }),
+  });
+
+  assert.deepEqual(core.respondApprovalCalls, []);
+  assert.match(messages.at(-1)?.text ?? '', /需要确认：approval-lat/);
 });
 
 test('approve supports latest and numeric index tokens', async () => {
@@ -1390,7 +1476,7 @@ test('approval request text advertises short approval tokens', async () => {
   assert.match(approvalMessage.text, /同意 approval-ver/);
 });
 
-test('permission approvals are auto-approved when conversation setting is enabled', async () => {
+test('approveall auto-approves future approval events in the same conversation', async () => {
   const core = new MockCoreClient();
   const runtime = createRuntime(core);
   const { sink, messages } = createSink();
@@ -1426,7 +1512,7 @@ test('permission approvals are auto-approved when conversation setting is enable
       decision: 'accept',
     },
   ]);
-  assert.match(messages.at(-1)?.text ?? '', /Auto-approved permission request/);
+  assert.match(messages.at(-1)?.text ?? '', /Auto-approved approval request/);
 });
 
 test('natural language approve command resolves the only pending approval', async () => {

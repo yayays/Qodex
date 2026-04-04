@@ -109,10 +109,10 @@ test('presenter renders approval messages and acknowledges deliveries directly',
   assert.deepEqual(core.ackedDeliveries, ['evt-approval-1']);
 });
 
-test('presenter auto-approves permission requests when enabled', async () => {
+test('presenter auto-approves any approval when approve-all is enabled', async () => {
   const core = new MockCoreClient();
   const sessionState = new RuntimeSessionState();
-  sessionState.setAutoApprovePermissions('qqbot:group:presenter-auto-approval-demo', true);
+  sessionState.setApprovalMode('qqbot:group:presenter-auto-approval-demo', 'all');
   const messages: Array<{ kind: string; text: string }> = [];
   const sink: OutboundSink = {
     async sendText(message) {
@@ -135,22 +135,22 @@ test('presenter auto-approves permission requests when enabled', async () => {
 
   await presenter.handleApproval({
     eventId: 'evt-approval-2',
-    approvalId: 'approval-perm-1',
+    approvalId: 'approval-cmd-1',
     conversationKey: 'qqbot:group:presenter-auto-approval-demo',
     threadId: 'thread-1',
     turnId: 'turn-1',
-    kind: 'permissions',
-    reason: 'Need network',
-    summary: 'Permission approval requested',
+    kind: 'commandExecution',
+    reason: 'Need shell access',
+    summary: 'Command approval requested',
     availableDecisions: ['accept', 'decline'],
-    payloadJson: JSON.stringify({ permissions: { network: true } }),
+    payloadJson: JSON.stringify({ command: 'cargo test' }),
   });
 
   assert.deepEqual(core.respondApprovalCalls, [
-    { approvalId: 'approval-perm-1', decision: 'accept' },
+    { approvalId: 'approval-cmd-1', decision: 'accept' },
   ]);
   assert.equal(messages[0]?.kind, 'system');
-  assert.match(messages[0]?.text ?? '', /Auto-approved permission request/);
+  assert.match(messages[0]?.text ?? '', /Auto-approved approval request/);
   assert.deepEqual(core.ackedDeliveries, ['evt-approval-2']);
 });
 

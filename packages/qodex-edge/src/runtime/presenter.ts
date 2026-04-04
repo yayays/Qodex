@@ -104,13 +104,14 @@ export class RuntimeEventPresenter {
   }
 
   async handleApproval(event: ApprovalRequestedEvent): Promise<void> {
-    if (
-      event.kind === 'permissions'
-      && this.deps.sessionState.isAutoApprovePermissionsEnabled(
-        event.conversationKey,
-        this.deps.config.edge.autoApprovePermissions,
-      )
-    ) {
+    const approvalMode = this.deps.sessionState.getApprovalMode(event.conversationKey);
+    const shouldAutoApprove = approvalMode === 'all'
+      || (
+        approvalMode !== 'disabled'
+        && event.kind === 'permissions'
+        && this.deps.config.edge.autoApprovePermissions
+      );
+    if (shouldAutoApprove) {
       try {
         const response = await this.deps.core.respondApproval({
           approvalId: event.approvalId,
@@ -121,7 +122,9 @@ export class RuntimeEventPresenter {
           await sink.sendText({
             conversationKey: event.conversationKey,
             kind: 'system',
-            text: `Auto-approved permission request: ${response.approvalId}`,
+            text: approvalMode === 'all'
+              ? `Auto-approved approval request: ${response.approvalId}`
+              : `Auto-approved permission request: ${response.approvalId}`,
           });
         }
         await this.ackDeliveryIfPresent(event.eventId);

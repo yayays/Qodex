@@ -17,6 +17,7 @@ export function renderStatus(
   defaultWorkspace: string,
   processing: ConversationProcessingState,
   backendKind: RuntimeBackendKind,
+  approveAllEnabled?: boolean,
 ): string {
   const conversation = status.conversation;
   const lines = [title];
@@ -41,6 +42,9 @@ export function renderStatus(
         .map((approval) => `${approval.approvalId}:${approval.kind}`)
         .join(', ')}`,
     );
+  }
+  if (typeof approveAllEnabled === 'boolean') {
+    lines.push(`approveAll=${approveAllEnabled ? 'on' : 'off'}`);
   }
   lines.push(`processing=${processing.isProcessing ? 'active' : 'idle'}`);
   lines.push(`activeTurns=${processing.activeTurns}`);

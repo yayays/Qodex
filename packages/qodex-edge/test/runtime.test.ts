@@ -338,6 +338,19 @@ test('status command includes streaming processing state after delta', async () 
   assert.match(statusReply.text, /output=streaming/);
 });
 
+test('status command reports approve-all mode for the conversation', async () => {
+  const runtime = createRuntime();
+  const { sink, messages } = createSink();
+  const conversationKey = 'qqbot:group:approveall-status-demo';
+
+  await runtime.handleIncoming(buildMessage(conversationKey, '/status'), sink);
+  await runtime.handleIncoming(buildMessage(conversationKey, '/approveall on'), sink);
+  await runtime.handleIncoming(buildMessage(conversationKey, '/status'), sink);
+
+  assert.match(messages[0].text, /approveAll=off/);
+  assert.match(messages.at(-1)?.text ?? '', /approveAll=on/);
+});
+
 test('running command reports idle with no active turn', async () => {
   const core = new MockCoreClient();
   core.runningResponse = {

@@ -103,6 +103,7 @@ export async function handleRuntimeCommand(
     case '/status': {
       const status = await deps.core.status({ conversationKey });
       const processing = deps.sessionState.getProcessingState(conversationKey);
+      const approveAllEnabled = deps.sessionState.getApprovalMode(conversationKey) === 'all';
       await sink.sendText({
         conversationKey,
         kind: 'system',
@@ -112,6 +113,7 @@ export async function handleRuntimeCommand(
           deps.config.backend.defaultWorkspace,
           processing,
           status.conversation?.backendKind ?? messageBackendKind,
+          approveAllEnabled,
         ),
       });
       return;

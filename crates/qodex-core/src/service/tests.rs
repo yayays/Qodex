@@ -1578,6 +1578,62 @@ async fn new_thread_can_switch_backend_and_reset_existing_thread_state() {
 }
 
 #[tokio::test]
+async fn new_thread_marks_existing_pending_approvals_stale() {
+    let harness = create_harness(&["/tmp/qodex-workspace-a"]).await;
+
+    let send_response = harness
+        .service
+        .send_message(build_message(
+            "qqbot:group:new-thread-approval-reset-demo",
+            "trigger approval state",
+            None,
+        ))
+        .await
+        .expect("send succeeds");
+
+    harness
+        .service
+        .handle_server_request(
+            harness.mock.backend_kind,
+            json!(7),
+            "item/commandExecution/requestApproval",
+            json!({
+                "threadId": send_response.thread_id,
+                "turnId": send_response.turn_id,
+                "itemId": "item-1",
+                "approvalId": "approval-1",
+                "reason": "Need shell access",
+                "command": "cargo test",
+                "availableDecisions": ["accept", "decline"]
+            }),
+        )
+        .await
+        .expect("approval request is accepted");
+
+    let status = harness
+        .service
+        .new_thread(ConversationKeyParams {
+            conversation_key: "qqbot:group:new-thread-approval-reset-demo".to_string(),
+            backend_kind: None,
+        })
+        .await
+        .expect("new thread succeeds");
+
+    let conversation = status.conversation.expect("conversation exists");
+    assert_eq!(conversation.thread_id, None);
+    assert!(status.pending_approvals.is_empty());
+
+    let stored = harness
+        .service
+        .db
+        .get_pending_approval("approval-1")
+        .await
+        .expect("db read succeeds")
+        .expect("approval still exists");
+    assert_eq!(stored.status, "stale");
+}
+
+#[tokio::test]
 async fn new_thread_initializes_missing_conversation_with_default_workspace() {
     let harness = create_harness(&["/tmp/qodex-workspace-a"]).await;
 

@@ -85,6 +85,9 @@ impl AppService {
                 conversation.thread_id.as_deref(),
             )
             .await?;
+            self.db
+                .mark_pending_approvals_stale(&conversation_key)
+                .await?;
             self.status(ConversationKeyParams {
                 conversation_key,
                 backend_kind: Some(requested_backend_kind),

@@ -1545,6 +1545,78 @@ test('natural language approve command resolves the only pending approval', asyn
   });
 });
 
+test('natural language approve session resolves the only pending approval for session scope', async () => {
+  const core = new MockCoreClient();
+  core.statusResponse = {
+    conversation: null,
+    pendingApprovals: [
+      {
+        approvalId: 'approval-very-long-12345',
+        requestId: 'request-1',
+        conversationKey: 'qqbot:group:approval-demo',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'item-1',
+        kind: 'commandExecution',
+        payloadJson: '{}',
+        status: 'pending',
+        createdAt: '2026-03-19T00:00:00.000Z',
+      },
+    ],
+  };
+  const runtime = createRuntime(core);
+  const { sink } = createSink();
+
+  await runtime.handleIncoming(buildMessage('qqbot:group:approval-demo', '同意 session'), sink);
+
+  assert.deepEqual(core.lastRespondApprovalParams, {
+    approvalId: 'approval-very-long-12345',
+    decision: 'acceptForSession',
+  });
+});
+
+test('natural language approve by index also supports session scope', async () => {
+  const core = new MockCoreClient();
+  core.statusResponse = {
+    conversation: null,
+    pendingApprovals: [
+      {
+        approvalId: 'approval-first-1',
+        requestId: 'request-1',
+        conversationKey: 'qqbot:group:approval-demo',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'item-1',
+        kind: 'commandExecution',
+        payloadJson: '{}',
+        status: 'pending',
+        createdAt: '2026-03-19T00:00:00.000Z',
+      },
+      {
+        approvalId: 'approval-second-2',
+        requestId: 'request-2',
+        conversationKey: 'qqbot:group:approval-demo',
+        threadId: 'thread-1',
+        turnId: 'turn-2',
+        itemId: 'item-2',
+        kind: 'commandExecution',
+        payloadJson: '{}',
+        status: 'pending',
+        createdAt: '2026-03-19T00:00:01.000Z',
+      },
+    ],
+  };
+  const runtime = createRuntime(core);
+  const { sink } = createSink();
+
+  await runtime.handleIncoming(buildMessage('qqbot:group:approval-demo', '同意 2 session'), sink);
+
+  assert.deepEqual(core.lastRespondApprovalParams, {
+    approvalId: 'approval-second-2',
+    decision: 'acceptForSession',
+  });
+});
+
 test('natural language reject command resolves approval by index', async () => {
   const core = new MockCoreClient();
   core.statusResponse = {

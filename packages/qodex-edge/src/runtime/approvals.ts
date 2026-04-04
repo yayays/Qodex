@@ -103,11 +103,13 @@ export function parseApprovalIntent(text: string): {
 
   const parts = trimmed.split(/\s+/);
   const head = parts[0].toLowerCase();
-  const approvalToken = parts[1];
+  const modifiers = parts.slice(1);
+  const useSessionScope = modifiers.some((part) => part.toLowerCase() === 'session');
+  const approvalToken = modifiers.find((part) => part.toLowerCase() !== 'session');
 
   if (['同意', '可以', '通过', '批准', '准了', 'ok', 'yes', 'y'].includes(head)) {
     return {
-      decision: parts[1]?.toLowerCase() === 'session' ? 'acceptForSession' : 'accept',
+      decision: useSessionScope ? 'acceptForSession' : 'accept',
       approvalToken,
     };
   }

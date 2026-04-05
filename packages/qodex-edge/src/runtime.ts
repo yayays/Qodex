@@ -26,6 +26,8 @@ export interface RuntimeHostBridge {
 }
 
 export class QodexEdgeRuntime {
+  private static readonly AUTO_CONTINUE_PROMPT =
+    'Continue with the next planned step. If there is no next step, explain briefly and stop.';
   private readonly core: CoreClient;
   private readonly logger: QodexLogger;
   private readonly config: QodexConfig;
@@ -46,6 +48,7 @@ export class QodexEdgeRuntime {
       sessionState: this.sessionState,
       resolveSink: (conversationKey) => this.resolveSink(conversationKey),
       isFailedTurnStatus,
+      requestAutoContinue: (conversationKey) => this.requestAutoContinue(conversationKey),
     });
     this.replay = new RuntimeDeliveryReplay({
       logger: this.logger,
@@ -130,6 +133,50 @@ export class QodexEdgeRuntime {
 
   private async handleApproval(event: ApprovalRequestedEvent): Promise<void> {
     await this.presenter.handleApproval(event);
+  }
+
+  private async requestAutoContinue(
+    conversationKey: string,
+  ): Promise<
+    | { status: 'triggered'; stepsUsed: number; maxSteps: number }
+    | { status: 'disabled' }
+    | { status: 'missingContext' }
+    | { status: 'limitReached'; stepsUsed: number; maxSteps: number }
+  > {
+    const state = this.sessionState.getAutoContinueState(conversationKey);
+    if (!state.enabled) {
+      return { status: 'disabled' };
+    }
+
+    const context = this.sessionState.getAutoContinueContext(conversationKey);
+    if (!context) {
+      return { status: 'missingContext' };
+    }
+
+    if (state.stepsUsed >= state.maxSteps) {
+      return {
+        status: 'limitReached',
+        stepsUsed: state.stepsUsed,
+        maxSteps: state.maxSteps,
+      };
+    }
+
+    const response = await this.core.sendMessage({
+      conversation: context.conversation,
+      sender: context.sender,
+      text: QodexEdgeRuntime.AUTO_CONTINUE_PROMPT,
+      workspace: context.workspace,
+      backendKind: context.backendKind,
+      model: context.model,
+      modelProvider: context.modelProvider,
+    });
+    const next = this.sessionState.incrementAutoContinue(conversationKey);
+    this.sessionState.registerActiveTurn(conversationKey, response.turnId);
+    return {
+      status: 'triggered',
+      stepsUsed: next.stepsUsed,
+      maxSteps: next.maxSteps,
+    };
   }
 
   private async replayPendingDelivery(delivery: PendingDeliveryRecord): Promise<void> {

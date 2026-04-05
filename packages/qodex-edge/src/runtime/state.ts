@@ -1,4 +1,4 @@
-import type { ConversationRef, OutboundSink, SavedFileResult } from '../protocol.js';
+import type { PlatformMessage, ConversationRef, OutboundSink, SavedFileResult } from '../protocol.js';
 import type { QodexLogger } from '../logger.js';
 import type { ConversationProcessingState } from './types.js';
 import { parseConversationKey } from './utils.js';
@@ -27,10 +27,26 @@ interface ActiveTurnState {
 }
 
 type ApprovalMode = 'all' | 'disabled';
+const DEFAULT_AUTO_CONTINUE_MAX_STEPS = 5;
+
+interface AutoContinueState {
+  enabled: boolean;
+  stepsUsed: number;
+  maxSteps: number;
+}
 
 interface PendingImageState {
   savedFiles: SavedFileResult[];
   createdAt: number;
+}
+
+interface AutoContinueContext {
+  conversation: PlatformMessage['conversation'];
+  sender: PlatformMessage['sender'];
+  workspace?: string;
+  backendKind?: PlatformMessage['backendKind'];
+  model?: string;
+  modelProvider?: string;
 }
 
 export interface SinkResolver {
@@ -43,6 +59,8 @@ export class RuntimeSessionState {
   readonly activeTurns = new Map<string, ActiveTurnState>();
   readonly failedTurns = new Map<string, number>();
   readonly approvalModes = new Map<string, ApprovalMode>();
+  readonly autoContinueStates = new Map<string, AutoContinueState>();
+  readonly autoContinueContexts = new Map<string, AutoContinueContext>();
   readonly pendingImages = new Map<string, PendingImageState>();
   lastPrunedAt = 0;
 
@@ -139,6 +157,57 @@ export class RuntimeSessionState {
 
   getApprovalMode(conversationKey: string): ApprovalMode | 'default' {
     return this.approvalModes.get(conversationKey) ?? 'default';
+  }
+
+  setAutoContinue(
+    conversationKey: string,
+    enabled: boolean,
+    maxSteps = DEFAULT_AUTO_CONTINUE_MAX_STEPS,
+  ): void {
+    if (!enabled) {
+      this.autoContinueStates.delete(conversationKey);
+      return;
+    }
+
+    this.autoContinueStates.set(conversationKey, {
+      enabled: true,
+      stepsUsed: 0,
+      maxSteps,
+    });
+  }
+
+  getAutoContinueState(conversationKey: string): AutoContinueState {
+    return this.autoContinueStates.get(conversationKey) ?? {
+      enabled: false,
+      stepsUsed: 0,
+      maxSteps: DEFAULT_AUTO_CONTINUE_MAX_STEPS,
+    };
+  }
+
+  incrementAutoContinue(conversationKey: string): AutoContinueState {
+    const current = this.getAutoContinueState(conversationKey);
+    const next = {
+      ...current,
+      enabled: true,
+      stepsUsed: current.stepsUsed + 1,
+    };
+    this.autoContinueStates.set(conversationKey, next);
+    return next;
+  }
+
+  rememberAutoContinueContext(message: PlatformMessage): void {
+    this.autoContinueContexts.set(message.conversation.conversationKey, {
+      conversation: message.conversation,
+      sender: message.sender,
+      workspace: message.workspace,
+      backendKind: message.backendKind,
+      model: message.codex?.model,
+      modelProvider: message.codex?.modelProvider,
+    });
+  }
+
+  getAutoContinueContext(conversationKey: string): AutoContinueContext | undefined {
+    return this.autoContinueContexts.get(conversationKey);
   }
 
   registerActiveTurn(conversationKey: string, turnId: string): void {
@@ -243,6 +312,18 @@ export class RuntimeSessionState {
     for (const conversationKey of this.pendingImages.keys()) {
       if (!activeConversations.has(conversationKey) && !this.sinks.has(conversationKey)) {
         this.pendingImages.delete(conversationKey);
+      }
+    }
+
+    for (const conversationKey of this.autoContinueStates.keys()) {
+      if (!activeConversations.has(conversationKey) && !this.sinks.has(conversationKey)) {
+        this.autoContinueStates.delete(conversationKey);
+      }
+    }
+
+    for (const conversationKey of this.autoContinueContexts.keys()) {
+      if (!activeConversations.has(conversationKey) && !this.sinks.has(conversationKey)) {
+        this.autoContinueContexts.delete(conversationKey);
       }
     }
   }

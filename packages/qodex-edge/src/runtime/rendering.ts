@@ -185,6 +185,7 @@ export function renderHelp(
     '/unhint <hintId>',
     '/approve <approvalId> [session]',
     '/approveall [on|off|now]',
+    '/autocontinue [on|off|status]',
     '/reject <approvalId>',
     `backend=${backendKind}`,
     `defaultWorkspace=${defaultWorkspace}`,

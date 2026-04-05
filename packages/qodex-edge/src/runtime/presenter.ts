@@ -18,7 +18,14 @@ export interface RuntimePresenterDeps {
   sessionState: RuntimeSessionState;
   resolveSink(conversationKey: string): OutboundSink | undefined;
   isFailedTurnStatus(status: string): boolean;
+  requestAutoContinue(conversationKey: string): Promise<AutoContinueRequestResult>;
 }
+
+type AutoContinueRequestResult =
+  | { status: 'triggered'; stepsUsed: number; maxSteps: number }
+  | { status: 'disabled' }
+  | { status: 'missingContext' }
+  | { status: 'limitReached'; stepsUsed: number; maxSteps: number };
 
 export class RuntimeEventPresenter {
   constructor(private readonly deps: RuntimePresenterDeps) {}
@@ -64,6 +71,7 @@ export class RuntimeEventPresenter {
     }
 
     const sink = this.deps.resolveSink(event.conversationKey);
+    const completion = parseAutoContinueMarker(event.text);
     if (!sink) {
       this.deps.sessionState.pruneIdleState();
       return;
@@ -72,9 +80,31 @@ export class RuntimeEventPresenter {
     await sink.sendText({
       conversationKey: event.conversationKey,
       kind: 'final',
-      text: event.text || `[Qodex completed turn ${event.turnId} with empty text]`,
+      text: completion.visibleText || `[Qodex completed turn ${event.turnId} with empty text]`,
     });
     await this.ackDeliveryIfPresent(event.eventId);
+    if (completion.shouldContinue) {
+      const result = await this.deps.requestAutoContinue(event.conversationKey);
+      if (result.status === 'triggered') {
+        await sink.sendText({
+          conversationKey: event.conversationKey,
+          kind: 'system',
+          text: `Auto-continue triggered (${result.stepsUsed}/${result.maxSteps}).`,
+        });
+      } else if (result.status === 'limitReached') {
+        await sink.sendText({
+          conversationKey: event.conversationKey,
+          kind: 'system',
+          text: `Auto-continue stopped after reaching ${result.stepsUsed}/${result.maxSteps} automatic steps.`,
+        });
+      } else if (result.status === 'missingContext') {
+        await sink.sendText({
+          conversationKey: event.conversationKey,
+          kind: 'system',
+          text: 'Auto-continue stopped because there is no reusable conversation context.',
+        });
+      }
+    }
     this.deps.sessionState.pruneIdleState();
   }
 
@@ -164,4 +194,24 @@ export class RuntimeEventPresenter {
       this.deps.logger.warn({ eventId, error }, 'failed to acknowledge recoverable delivery');
     }
   }
+}
+
+function parseAutoContinueMarker(text: string): {
+  visibleText: string;
+  shouldContinue: boolean;
+} {
+  const lines = text.split('\n');
+  let shouldContinue = false;
+  const visibleLines = lines.filter((line) => {
+    if (line.trim() === 'AUTO_CONTINUE: next') {
+      shouldContinue = true;
+      return false;
+    }
+    return true;
+  });
+
+  return {
+    visibleText: visibleLines.join('\n').trim(),
+    shouldContinue,
+  };
 }

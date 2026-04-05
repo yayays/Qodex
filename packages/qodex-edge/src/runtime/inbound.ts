@@ -101,6 +101,7 @@ export class RuntimeInboundHandler {
         });
       }
 
+      const resolvedBackendKind = this.deps.resolveBackendKind(message);
       const response = await this.deps.core.sendMessage({
         conversation: message.conversation,
         sender: message.sender,
@@ -108,9 +109,13 @@ export class RuntimeInboundHandler {
         images: filterForwardableImages(message.images),
         files: message.files,
         workspace: message.workspace,
-        backendKind: this.deps.resolveBackendKind(message),
+        backendKind: resolvedBackendKind,
         model: message.codex?.model,
         modelProvider: message.codex?.modelProvider,
+      });
+      this.deps.sessionState.rememberAutoContinueContext({
+        ...message,
+        backendKind: resolvedBackendKind,
       });
       await reportSavedFiles(conversationKey, response.savedFiles ?? [], sink);
       this.deps.sessionState.registerActiveTurn(
@@ -213,6 +218,7 @@ export class RuntimeInboundHandler {
       .map((file, index) => `image_${index + 1}_path: ${file.savedPath}`)
       .join('\n');
     const combinedText = `${message.text.trim()}\n\nSaved image path(s):\n${pathLines}`;
+    const resolvedBackendKind = this.deps.resolveBackendKind(message);
     const response = await this.deps.core.sendMessage({
       conversation: message.conversation,
       sender: message.sender,
@@ -220,9 +226,14 @@ export class RuntimeInboundHandler {
       images: undefined,
       files: message.files,
       workspace: message.workspace,
-      backendKind: this.deps.resolveBackendKind(message),
+      backendKind: resolvedBackendKind,
       model: message.codex?.model,
       modelProvider: message.codex?.modelProvider,
+    });
+    this.deps.sessionState.rememberAutoContinueContext({
+      ...message,
+      text: combinedText,
+      backendKind: resolvedBackendKind,
     });
     await reportSavedFiles(conversationKey, response.savedFiles ?? [], sink);
     this.deps.sessionState.registerActiveTurn(conversationKey, response.turnId);

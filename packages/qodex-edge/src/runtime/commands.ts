@@ -413,6 +413,46 @@ export async function handleRuntimeCommand(
       });
       return;
     }
+    case '/autocontinue': {
+      const mode = (rest[0] ?? 'status').trim().toLowerCase() || 'status';
+      if (mode !== 'on' && mode !== 'off' && mode !== 'status') {
+        await sink.sendText({
+          conversationKey,
+          kind: 'error',
+          text: 'Usage: /autocontinue [on|off|status]',
+        });
+        return;
+      }
+
+      if (mode === 'on') {
+        deps.sessionState.setAutoContinue(conversationKey, true);
+        const state = deps.sessionState.getAutoContinueState(conversationKey);
+        await sink.sendText({
+          conversationKey,
+          kind: 'system',
+          text: `Auto-continue enabled for this conversation.\nautoContinue=on\nstepsUsed=${state.stepsUsed}/${state.maxSteps}`,
+        });
+        return;
+      }
+
+      if (mode === 'off') {
+        deps.sessionState.setAutoContinue(conversationKey, false);
+        await sink.sendText({
+          conversationKey,
+          kind: 'system',
+          text: 'Auto-continue disabled for this conversation.\nautoContinue=off\nstepsUsed=0/5',
+        });
+        return;
+      }
+
+      const state = deps.sessionState.getAutoContinueState(conversationKey);
+      await sink.sendText({
+        conversationKey,
+        kind: 'system',
+        text: `autoContinue=${state.enabled ? 'on' : 'off'}\nstepsUsed=${state.stepsUsed}/${state.maxSteps}`,
+      });
+      return;
+    }
     case '/reject': {
       const approvalId = rest[0];
       await deps.resolveApproval(conversationKey, approvalId, 'decline', sink);

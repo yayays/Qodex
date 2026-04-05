@@ -351,6 +351,75 @@ test('status command reports approve-all mode for the conversation', async () =>
   assert.match(messages.at(-1)?.text ?? '', /approveAll=on/);
 });
 
+test('autocontinue toggles and reports per-conversation status', async () => {
+  const runtime = createRuntime();
+  const { sink, messages } = createSink();
+  const conversationKey = 'qqbot:group:auto-continue-demo';
+
+  await runtime.handleIncoming(buildMessage(conversationKey, '/autocontinue'), sink);
+  await runtime.handleIncoming(buildMessage(conversationKey, '/autocontinue on'), sink);
+  await runtime.handleIncoming(buildMessage(conversationKey, '/autocontinue status'), sink);
+  await runtime.handleIncoming(buildMessage(conversationKey, '/autocontinue off'), sink);
+
+  assert.match(messages[0].text, /autoContinue=off/);
+  assert.match(messages[1].text, /enabled/);
+  assert.match(messages[2].text, /autoContinue=on/);
+  assert.match(messages[2].text, /stepsUsed=0\/5/);
+  assert.match(messages[3].text, /disabled/);
+});
+
+test('completed turn with AUTO_CONTINUE marker submits the next step when autocontinue is enabled', async () => {
+  const core = new MockCoreClient();
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+  const conversationKey = 'qqbot:group:auto-continue-run-demo';
+
+  await runtime.handleIncoming(buildMessage(conversationKey, '/autocontinue on'), sink);
+  await runtime.handleIncoming(buildMessage(conversationKey, 'start the plan'), sink);
+  await (runtime as any).handleCompleted({
+    eventId: 'evt-auto-continue-1',
+    conversationKey,
+    threadId: 'thread-test-1',
+    turnId: 'turn-test-1',
+    status: 'completed',
+    text: 'Finished step 1.\nAUTO_CONTINUE: next',
+  });
+
+  assert.equal(core.sendMessageCalls, 2);
+  assert.equal(
+    core.lastSendMessageParams.text,
+    'Continue with the next planned step. If there is no next step, explain briefly and stop.',
+  );
+  assert.equal(messages.at(-2)?.kind, 'final');
+  assert.match(messages.at(-2)?.text ?? '', /Finished step 1\./);
+  assert.doesNotMatch(messages.at(-2)?.text ?? '', /AUTO_CONTINUE: next/);
+  assert.match(messages.at(-1)?.text ?? '', /Auto-continue triggered/);
+});
+
+test('autocontinue stops at five automatic follow-up turns', async () => {
+  const core = new MockCoreClient();
+  const runtime = createRuntime(core);
+  const { sink, messages } = createSink();
+  const conversationKey = 'qqbot:group:auto-continue-cap-demo';
+
+  await runtime.handleIncoming(buildMessage(conversationKey, '/autocontinue on'), sink);
+  await runtime.handleIncoming(buildMessage(conversationKey, 'start the long plan'), sink);
+
+  for (let index = 0; index < 6; index += 1) {
+    await (runtime as any).handleCompleted({
+      eventId: `evt-auto-continue-cap-${index}`,
+      conversationKey,
+      threadId: 'thread-test-1',
+      turnId: 'turn-test-1',
+      status: 'completed',
+      text: `Finished step ${index + 1}.\nAUTO_CONTINUE: next`,
+    });
+  }
+
+  assert.equal(core.sendMessageCalls, 6);
+  assert.match(messages.at(-1)?.text ?? '', /Auto-continue stopped after reaching 5\/5 automatic steps/);
+});
+
 test('running command reports idle with no active turn', async () => {
   const core = new MockCoreClient();
   core.runningResponse = {
@@ -381,6 +450,7 @@ test('help command surfaces the configured backend kind', async () => {
   assert.match(helpReply.text, /backend=codex/);
   assert.match(helpReply.text, /defaultWorkspace=\/tmp\/qodex/);
   assert.match(helpReply.text, /\/approveall \[on\|off\|now\]/);
+  assert.match(helpReply.text, /\/autocontinue \[on\|off\|status\]/);
 });
 
 test('help command honors per-message backend selection', async () => {

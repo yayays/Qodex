@@ -50,6 +50,9 @@ test('presenter streams deltas and flushes through the resolved sink', async () 
     isFailedTurnStatus(status) {
       return /failed|error|cancel/i.test(status);
     },
+    async requestAutoContinue() {
+      return { status: 'disabled' as const };
+    },
   });
 
   await presenter.handleDelta({
@@ -86,6 +89,9 @@ test('presenter renders approval messages and acknowledges deliveries directly',
     },
     isFailedTurnStatus(status) {
       return /failed|error|cancel/i.test(status);
+    },
+    async requestAutoContinue() {
+      return { status: 'disabled' as const };
     },
   });
 
@@ -130,6 +136,9 @@ test('presenter auto-approves any approval when approve-all is enabled', async (
     },
     isFailedTurnStatus(status) {
       return /failed|error|cancel/i.test(status);
+    },
+    async requestAutoContinue() {
+      return { status: 'disabled' as const };
     },
   });
 

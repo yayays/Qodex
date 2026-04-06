@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFile, rm } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
@@ -10,11 +12,20 @@ import { QodexConfig, loadConfig } from './config.js';
 import { CoreClient } from './coreClient.js';
 import { createLogger } from './logger.js';
 import { QodexEdgeRuntime } from './runtime.js';
+import type { ConversationRef } from './core-protocol.js';
 
 interface ManagedChild {
   label: string;
   process: ChildProcess;
 }
+
+interface RestartNotification {
+  requestedAt: number;
+  conversation: ConversationRef;
+}
+
+const RESTART_NOTIFICATION_DIR = '/tmp';
+const RESTART_NOTIFICATION_TTL_MS = 10 * 60_000;
 
 async function main(): Promise<void> {
   const configPath = resolveInputPath(getArg('--config') ?? './qodex.toml');
@@ -123,10 +134,21 @@ async function main(): Promise<void> {
     await runtime.start();
 
     host = new QodexChannelHost(runtime, logger, config);
-    runtime.attachHost(host);
+    runtime.attachHost({
+      resolveSinkForConversation: (conversation) => host?.resolveSinkForConversation(conversation),
+      listConversationChannels: (conversation) => host?.listConversationChannels(conversation) ?? [],
+      getRestartInfo: () => ({
+        configPath,
+        skipAppServer,
+      }),
+      requestRestart: async (conversation) => {
+        spawnDetachedRestartHelper(configPath, skipAppServer, conversation);
+      },
+    });
     await host.registerExtension(consoleChannelExtension, 'builtin:console');
     await host.startConfiguredChannels();
     await runtime.recoverPendingDeliveries();
+    await deliverPendingRestartNotification(host, configPath, skipAppServer, logger);
 
     logger.info(
       {
@@ -150,6 +172,128 @@ async function main(): Promise<void> {
   } catch (error) {
     await fail(error);
     return;
+  }
+}
+
+function spawnDetachedRestartHelper(
+  configPath: string,
+  skipAppServer: boolean,
+  conversation?: ConversationRef,
+): void {
+  const helperArgs = [resolve(process.cwd(), 'scripts/qodex-restart.mjs'), '--config', configPath];
+  if (skipAppServer) {
+    helperArgs.push('--skip-app-server');
+  }
+  if (conversation) {
+    helperArgs.push(
+      '--notify-conversation-key',
+      conversation.conversationKey,
+      '--notify-platform',
+      conversation.platform,
+      '--notify-scope',
+      conversation.scope,
+      '--notify-external-id',
+      conversation.externalId,
+    );
+  }
+
+  const child = spawn(process.execPath, helperArgs, {
+    cwd: process.cwd(),
+    detached: true,
+    stdio: 'ignore',
+    env: {
+      ...process.env,
+      INIT_CWD: process.cwd(),
+    },
+  });
+  child.unref();
+}
+
+async function deliverPendingRestartNotification(
+  host: QodexChannelHost,
+  configPath: string,
+  skipAppServer: boolean,
+  logger: ReturnType<typeof createLogger>,
+): Promise<void> {
+  const notificationPath = buildRestartNotificationPath(configPath);
+  const notification = await readRestartNotification(notificationPath, logger);
+  if (!notification) {
+    return;
+  }
+
+  const ageMs = Date.now() - notification.requestedAt;
+  if (ageMs > RESTART_NOTIFICATION_TTL_MS) {
+    await clearRestartNotification(notificationPath, logger);
+    return;
+  }
+
+  const sink = host.resolveSinkForConversation(notification.conversation);
+  if (!sink) {
+    logger.warn({ configPath, notificationPath }, 'restart completed but no sink was available for the requesting conversation');
+    await clearRestartNotification(notificationPath, logger);
+    return;
+  }
+
+  try {
+    await sink.sendText({
+      conversationKey: notification.conversation.conversationKey,
+      kind: 'system',
+      text: [
+        'Qodex restart complete.',
+        `config=${configPath}`,
+        `appServers=${skipAppServer ? 'skipped' : 'managed'}`,
+      ].join('\n'),
+    });
+    await clearRestartNotification(notificationPath, logger);
+  } catch (error) {
+    logger.warn({ error, notificationPath }, 'failed to deliver restart completion notification');
+    await clearRestartNotification(notificationPath, logger);
+  }
+}
+
+function buildRestartNotificationPath(configPath: string): string {
+  const digest = createHash('sha256')
+    .update(configPath)
+    .digest('hex')
+    .slice(0, 16);
+  return `${RESTART_NOTIFICATION_DIR}/qodex-restart-${digest}.json`;
+}
+
+async function readRestartNotification(
+  notificationPath: string,
+  logger: ReturnType<typeof createLogger>,
+): Promise<RestartNotification | undefined> {
+  try {
+    const raw = await readFile(notificationPath, 'utf8');
+    const parsed = JSON.parse(raw) as Partial<RestartNotification>;
+    if (
+      typeof parsed.requestedAt !== 'number'
+      || !parsed.conversation
+      || typeof parsed.conversation.conversationKey !== 'string'
+      || typeof parsed.conversation.platform !== 'string'
+      || typeof parsed.conversation.scope !== 'string'
+      || typeof parsed.conversation.externalId !== 'string'
+    ) {
+      return undefined;
+    }
+    return parsed as RestartNotification;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return undefined;
+    }
+    logger.warn({ error, notificationPath }, 'failed to read pending restart notification');
+    return undefined;
+  }
+}
+
+async function clearRestartNotification(
+  notificationPath: string,
+  logger: ReturnType<typeof createLogger>,
+): Promise<void> {
+  try {
+    await rm(notificationPath, { force: true });
+  } catch (error) {
+    logger.warn({ error, notificationPath }, 'failed to clear restart notification');
   }
 }
 

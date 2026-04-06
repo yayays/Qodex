@@ -269,6 +269,11 @@ function hasFlag(name) {
 }
 
 function buildPrimaryStartCommand(configPath, skipAppServer) {
+  const defaultConfigPath = resolveInputPath('./qodex.toml');
+  if (configPath === defaultConfigPath) {
+    return skipAppServer ? 'npm run start:qodex:skip-backend' : 'npm run start:qodex';
+  }
+
   const parts = ['npm run host:qodex -- --config', shellEscape(configPath)];
   if (skipAppServer) {
     parts.push('--skip-app-server');

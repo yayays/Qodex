@@ -449,8 +449,53 @@ test('help command surfaces the configured backend kind', async () => {
   assert.ok(helpReply);
   assert.match(helpReply.text, /backend=codex/);
   assert.match(helpReply.text, /defaultWorkspace=\/tmp\/qodex/);
+  assert.match(helpReply.text, /\/restart/);
   assert.match(helpReply.text, /\/approveall \[on\|off\|now\]/);
   assert.match(helpReply.text, /\/autocontinue \[on\|off\|status\]/);
+});
+
+test('restart command acknowledges and delegates restart to the host bridge', async () => {
+  const runtime = createRuntime();
+  const { sink, messages } = createSink();
+  let restartCalls = 0;
+
+  runtime.attachHost({
+    resolveSinkForConversation() {
+      return undefined;
+    },
+    listConversationChannels() {
+      return [];
+    },
+    getRestartInfo() {
+      return {
+        configPath: '/repo/qodex.toml',
+        skipAppServer: false,
+      };
+    },
+    async requestRestart() {
+      restartCalls += 1;
+    },
+  });
+
+  await runtime.handleIncoming(buildMessage('qqbot:group:restart-demo', '/restart'), sink);
+
+  assert.equal(restartCalls, 1);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].kind, 'system');
+  assert.match(messages[0].text, /starting a full Qodex restart/i);
+  assert.match(messages[0].text, /config=\/repo\/qodex\.toml/);
+  assert.match(messages[0].text, /appServers=managed/);
+});
+
+test('restart command reports when restart support is unavailable', async () => {
+  const runtime = createRuntime();
+  const { sink, messages } = createSink();
+
+  await runtime.handleIncoming(buildMessage('qqbot:group:restart-unavailable-demo', '/restart'), sink);
+
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].kind, 'error');
+  assert.match(messages[0].text, /restart is only available/i);
 });
 
 test('help command honors per-message backend selection', async () => {

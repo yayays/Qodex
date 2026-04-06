@@ -71,11 +71,44 @@ npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel we
 ```bash
 npm run doctor:qodex
 npm run start:qodex
+npm run start:qodex:bg
+npm run restart:qodex
+npm run restart:qodex:bg
 npm run start:qodex:skip-backend
 cargo check -p qodex-core
 cargo test -p qodex-core
 npm --workspace @qodex/edge run check
 ```
+
+## 启动与重启
+
+统一使用根目录的 `start:*` 和 `restart:*` 脚本作为标准入口。
+
+```bash
+# 使用 ./qodex.toml 前台启动
+npm run start:qodex
+
+# 使用 ./qodex.toml 后台启动
+npm run start:qodex:bg
+
+# 重启 ./qodex.toml 对应的受管运行栈
+npm run restart:qodex
+```
+
+如果要指定自定义配置路径，再使用底层 `host:*` 形式：
+
+```bash
+# 使用自定义配置前台启动
+npm run host:qodex -- --config /ABSOLUTE/PATH/TO/qodex.toml
+
+# 使用自定义配置后台启动
+npm run host:qodex:bg -- --config /ABSOLUTE/PATH/TO/qodex.toml
+
+# 重启自定义配置对应的受管运行栈
+npm run restart:qodex -- --config /ABSOLUTE/PATH/TO/qodex.toml
+```
+
+后台模式会把运行时 PID / 状态 / 日志文件写到 `/tmp`，`restart:qodex` 会优先使用这些文件定位实例，找不到时再回退到进程匹配。
 
 ## 微信支持
 

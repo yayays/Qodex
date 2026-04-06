@@ -176,6 +176,7 @@ export function renderHelp(
     '/status',
     '/status+',
     '/running',
+    '/restart',
     '/memory',
     '/remember <bot|workspace|user> <category> <content>',
     '/forget <memoryId>',

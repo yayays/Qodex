@@ -23,6 +23,11 @@ import { RuntimeInboundHandler } from './runtime/inbound.js';
 export interface RuntimeHostBridge {
   resolveSinkForConversation(conversation: ConversationRef): OutboundSink | undefined;
   listConversationChannels(conversation?: ConversationRef | null): RuntimeChannelHealth[];
+  getRestartInfo?(): {
+    configPath: string;
+    skipAppServer: boolean;
+  };
+  requestRestart?(conversation?: ConversationRef): Promise<void>;
 }
 
 export class QodexEdgeRuntime {

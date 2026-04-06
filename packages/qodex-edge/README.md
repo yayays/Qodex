@@ -51,6 +51,16 @@ If `qodex-core` is configured with `server.auth_token`, the edge reuses that tok
 
 ## Standalone host usage
 
+For normal repository usage, prefer the root scripts:
+
+```bash
+npm run start:qodex
+npm run start:qodex:bg
+npm run restart:qodex
+```
+
+Use the workspace-local `@qodex/edge` commands below when working on the edge package directly or when you need lower-level control with an explicit config path.
+
 Run the local edge CLI:
 
 ```bash

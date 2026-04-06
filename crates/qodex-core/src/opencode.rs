@@ -449,7 +449,10 @@ impl OpenCodeBackend {
     }
 
     async fn open_event_stream(&self) -> Result<Response> {
-        for path in ["event", "global/event"] {
+        // Prefer the global stream when both endpoints exist: newer OpenCode
+        // builds expose /event but only publish the cross-session activity on
+        // /global/event.
+        for path in ["global/event", "event"] {
             let response = self
                 .client
                 .get(self.endpoint(path)?)
@@ -527,12 +530,13 @@ impl OpenCodeBackend {
                 self.handle_message_part_updated(event.kind.as_str(), event.properties)
                     .await?;
             }
-            "permission.updated" => {
+            "permission.updated" | "permission.asked" => {
                 self.handle_permission_updated(event.properties).await?;
             }
             "permission.replied" => {
                 self.handle_permission_replied(event.properties).await?;
             }
+            "todo.updated" => {}
             "server.heartbeat" => {}
             other => debug!(event = other, "ignoring unsupported OpenCode event"),
         }
@@ -611,10 +615,7 @@ impl OpenCodeBackend {
         }
 
         if matches!(status, ThreadStatus::SystemError) {
-            let message = payload
-                .get("error")
-                .as_ref()
-                .and_then(|value| value_string(value, &["message"]))
+            let message = opencode_error_message(&payload)
                 .unwrap_or_else(|| "OpenCode session error".to_string());
             self.handle_session_error(json!({
                 "sessionId": session_id,
@@ -636,7 +637,7 @@ impl OpenCodeBackend {
         let Some(session_id) = extract_session_id(&properties) else {
             return Ok(());
         };
-        let message = value_string(&properties, &["error", "message"])
+        let message = opencode_error_message(&properties)
             .unwrap_or_else(|| "OpenCode session error".to_string());
 
         let turn_id = {
@@ -773,7 +774,7 @@ impl OpenCodeBackend {
     async fn handle_permission_updated(&self, properties: Value) -> Result<()> {
         let permission: OpenCodePermission =
             serde_json::from_value(nested_event_properties(&properties, &["permission"]))
-                .context("invalid permission.updated payload")?;
+                .context("invalid OpenCode permission event payload")?;
         let request_id = json!({
             "sessionId": permission.session_id,
             "permissionId": permission.id,
@@ -939,6 +940,27 @@ impl OpenCodeBackend {
             .send()
             .await
             .with_context(|| format!("failed to call OpenCode POST /{path}"))
+    }
+
+    async fn post_permission_response<'a>(
+        &self,
+        session_id: &str,
+        permission_id: &str,
+        workspace: Option<&str>,
+        response_value: &'a str,
+    ) -> Result<Response> {
+        let query = directory_query(workspace);
+        let body = PermissionRespondRequest {
+            response: response_value,
+        };
+        let plural_path = format!("session/{session_id}/permissions/{permission_id}");
+        let response = self.post(&plural_path, &query, &body).await?;
+        if response.status() != StatusCode::NOT_FOUND {
+            return Ok(response);
+        }
+
+        let singular_path = format!("session/{session_id}/permission/{permission_id}");
+        self.post(&singular_path, &query, &body).await
     }
 
     fn endpoint(&self, path: &str) -> Result<Url> {
@@ -1109,21 +1131,23 @@ impl AgentBackend for OpenCodeBackend {
             let permission_id = value_string(&request, &["permissionId"])
                 .context("OpenCode approval request is missing permissionId")?;
             let workspace = self.state.lock().await.workspace_for(&session_id);
-            let path = format!("session/{session_id}/permission/{permission_id}");
             let response = self
-                .post(
-                    &path,
-                    &directory_query(workspace.as_deref()),
-                    &PermissionRespondRequest {
-                        response: approval_response_value(decision),
-                    },
+                .post_permission_response(
+                    &session_id,
+                    &permission_id,
+                    workspace.as_deref(),
+                    approval_response_value(decision),
                 )
                 .await?;
             if response.status() == StatusCode::NOT_FOUND {
                 return Err(anyhow!("permission not found: {permission_id}"));
             }
             if !response.status().is_success() {
-                return Err(response_error(&path, response).await);
+                return Err(response_error(
+                    &format!("session/{session_id}/permissions/{permission_id}"),
+                    response,
+                )
+                .await);
             }
             Ok(())
         })
@@ -1200,6 +1224,15 @@ fn value_string(value: &Value, keys: &[&str]) -> Option<String> {
             .and_then(Value::as_str)
             .map(ToString::to_string)
     })
+}
+
+fn opencode_error_message(value: &Value) -> Option<String> {
+    value_string(value, &["message"]).or_else(|| {
+        value
+            .get("data")
+            .and_then(|nested| value_string(nested, &["message"]))
+    })
+    .or_else(|| value.get("error").and_then(opencode_error_message))
 }
 
 fn extract_message_text(parts: &[OpenCodePart]) -> String {
@@ -1322,7 +1355,13 @@ fn part_text_key(session_id: &str, message_id: &str, part_id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{extract::State, routing::{get, post}, Json, Router};
     use serde_json::json;
+    use std::io;
+    use std::{net::SocketAddr, sync::Arc};
+    use tokio::{net::TcpListener, runtime::Builder, time::timeout};
+    use crate::backend::BackendInbound;
+    use tracing_subscriber::fmt::MakeWriter;
 
     #[test]
     fn build_model_ref_prefers_explicit_provider_and_model() {
@@ -1522,5 +1561,377 @@ mod tests {
         );
         assert_eq!(value_string(&payload, &["field"]).as_deref(), Some("text"));
         assert_eq!(value_string(&payload, &["delta"]).as_deref(), Some("hello"));
+    }
+
+    #[tokio::test]
+    async fn open_event_stream_prefers_global_endpoint_when_available() {
+        let app = Router::new()
+            .route("/event", get(|| async { "event" }))
+            .route("/global/event", get(|| async { "global" }));
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let addr: SocketAddr = listener
+            .local_addr()
+            .expect("listener should expose local addr");
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("test server should run");
+        });
+
+        let config = OpenCodeConfig {
+            url: format!("http://{addr}"),
+            model: None,
+            model_provider: None,
+            approval_policy: "on-request".to_string(),
+            sandbox: "workspace-write".to_string(),
+            service_name: "Qodex".to_string(),
+            request_timeout_ms: 5_000,
+        };
+        let backend = OpenCodeBackend {
+            base_url: Url::parse(&format!("http://{addr}/")).expect("url should parse"),
+            client: Client::builder()
+                .build()
+                .expect("client should build"),
+            config: Arc::new(config.clone()),
+            request_timeout: Duration::from_millis(config.request_timeout_ms),
+            events_tx: broadcast::channel(8).0,
+            state: Arc::new(Mutex::new(OpenCodeState::default())),
+        };
+
+        let response = backend
+            .open_event_stream()
+            .await
+            .expect("event stream should open");
+
+        assert_eq!(
+            response.text().await.expect("body should read"),
+            "global"
+        );
+    }
+
+    #[tokio::test]
+    async fn permission_asked_emits_unified_approval_request() {
+        let (events_tx, mut events_rx) = broadcast::channel(8);
+        let config = OpenCodeConfig {
+            url: "http://127.0.0.1:4097".to_string(),
+            model: None,
+            model_provider: None,
+            approval_policy: "on-request".to_string(),
+            sandbox: "workspace-write".to_string(),
+            service_name: "Qodex".to_string(),
+            request_timeout_ms: 5_000,
+        };
+        let backend = OpenCodeBackend {
+            base_url: Url::parse("http://127.0.0.1:4097/").expect("url should parse"),
+            client: Client::builder()
+                .build()
+                .expect("client should build"),
+            config: Arc::new(config.clone()),
+            request_timeout: Duration::from_millis(config.request_timeout_ms),
+            events_tx,
+            state: Arc::new(Mutex::new(OpenCodeState::default())),
+        };
+        {
+            let mut state = backend.state.lock().await;
+            state.remember_workspace("ses-1", "/tmp/workspace");
+            state.queue_turn("ses-1", "turn-1");
+        }
+
+        backend
+            .handle_event_payload(
+                &json!({
+                    "type": "permission.asked",
+                    "properties": {
+                        "permission": {
+                            "id": "perm-1",
+                            "sessionID": "ses-1",
+                            "callID": "tool-1",
+                            "title": "Allow command execution",
+                            "type": "exec",
+                            "pattern": "cargo test",
+                            "metadata": {
+                                "tool": "shell"
+                            }
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .await
+            .expect("event should be handled");
+
+        let event = timeout(Duration::from_millis(200), events_rx.recv())
+            .await
+            .expect("approval request should be emitted in time")
+            .expect("approval request should be emitted");
+        let BackendInbound::ServerRequest { method, params, .. } = event else {
+            panic!("expected server request event");
+        };
+
+        assert_eq!(method, "item/permissions/requestApproval");
+        assert_eq!(params["threadId"], json!("ses-1"));
+        assert_eq!(params["turnId"], json!("turn-1"));
+        assert_eq!(params["itemId"], json!("tool-1"));
+        assert_eq!(params["permissions"]["permissionId"], json!("perm-1"));
+        assert_eq!(params["permissions"]["pattern"], json!("cargo test"));
+    }
+
+    #[tokio::test]
+    async fn session_error_uses_nested_data_message_when_top_level_message_is_missing() {
+        let (events_tx, mut events_rx) = broadcast::channel(8);
+        let config = OpenCodeConfig {
+            url: "http://127.0.0.1:4097".to_string(),
+            model: None,
+            model_provider: None,
+            approval_policy: "on-request".to_string(),
+            sandbox: "workspace-write".to_string(),
+            service_name: "Qodex".to_string(),
+            request_timeout_ms: 5_000,
+        };
+        let backend = OpenCodeBackend {
+            base_url: Url::parse("http://127.0.0.1:4097/").expect("url should parse"),
+            client: Client::builder()
+                .build()
+                .expect("client should build"),
+            config: Arc::new(config.clone()),
+            request_timeout: Duration::from_millis(config.request_timeout_ms),
+            events_tx,
+            state: Arc::new(Mutex::new(OpenCodeState::default())),
+        };
+        {
+            let mut state = backend.state.lock().await;
+            state.remember_workspace("ses-1", "/tmp/workspace");
+            state.queue_turn("ses-1", "turn-1");
+        }
+
+        backend
+            .handle_event_payload(
+                &json!({
+                    "type": "session.error",
+                    "properties": {
+                        "sessionID": "ses-1",
+                        "error": {
+                            "name": "APIError",
+                            "data": {
+                                "message": "Invalid token"
+                            }
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .await
+            .expect("event should be handled");
+
+        let event = timeout(Duration::from_millis(200), events_rx.recv())
+            .await
+            .expect("error event should be emitted in time")
+            .expect("error event should be emitted");
+        let BackendInbound::Notification { method, params } = event else {
+            panic!("expected notification event");
+        };
+
+        assert_eq!(method, "error");
+        assert_eq!(params["threadId"], json!("ses-1"));
+        assert_eq!(params["turnId"], json!("turn-1"));
+        assert_eq!(params["error"]["message"], json!("Invalid token"));
+    }
+
+    #[test]
+    fn todo_updated_does_not_log_unsupported_event_noise() {
+        #[derive(Clone, Default)]
+        struct SharedBuffer(Arc<std::sync::Mutex<Vec<u8>>>);
+
+        struct BufferWriter(Arc<std::sync::Mutex<Vec<u8>>>);
+
+        impl io::Write for BufferWriter {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                self.0.lock().expect("buffer should lock").extend_from_slice(buf);
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        impl<'a> MakeWriter<'a> for SharedBuffer {
+            type Writer = BufferWriter;
+
+            fn make_writer(&'a self) -> Self::Writer {
+                BufferWriter(self.0.clone())
+            }
+        }
+
+        let buffer = SharedBuffer::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .without_time()
+            .with_writer(buffer.clone())
+            .finish();
+
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+
+        tracing::subscriber::with_default(subscriber, || {
+            runtime.block_on(async {
+                let backend = OpenCodeBackend {
+                    base_url: Url::parse("http://127.0.0.1:4097/").expect("url should parse"),
+                    client: Client::builder()
+                        .build()
+                        .expect("client should build"),
+                    config: Arc::new(OpenCodeConfig {
+                        url: "http://127.0.0.1:4097".to_string(),
+                        model: None,
+                        model_provider: None,
+                        approval_policy: "on-request".to_string(),
+                        sandbox: "workspace-write".to_string(),
+                        service_name: "Qodex".to_string(),
+                        request_timeout_ms: 5_000,
+                    }),
+                    request_timeout: Duration::from_millis(5_000),
+                    events_tx: broadcast::channel(8).0,
+                    state: Arc::new(Mutex::new(OpenCodeState::default())),
+                };
+
+                backend
+                    .handle_event_payload(
+                        &json!({
+                            "type": "todo.updated",
+                            "properties": {
+                                "sessionID": "ses-1",
+                                "todos": [
+                                    {
+                                        "content": "Investigate token issue",
+                                        "status": "in_progress",
+                                        "priority": "high"
+                                    }
+                                ]
+                            }
+                        })
+                        .to_string(),
+                    )
+                    .await
+                    .expect("event should be handled");
+            });
+        });
+
+        let output = String::from_utf8(
+            buffer
+                .0
+                .lock()
+                .expect("buffer should lock")
+                .clone(),
+        )
+        .expect("logs should be utf-8");
+        assert!(
+            !output.contains("ignoring unsupported OpenCode event"),
+            "unexpected unsupported-event log: {output}"
+        );
+    }
+
+    #[derive(Clone, Default)]
+    struct RecordedApprovalRequest {
+        path: String,
+        query: Vec<(String, String)>,
+        body: Value,
+    }
+
+    #[tokio::test]
+    async fn respond_to_approval_uses_plural_permissions_endpoint() {
+        let recorded = Arc::new(std::sync::Mutex::new(RecordedApprovalRequest::default()));
+        let app = Router::new()
+            .route(
+                "/*path",
+                post(
+                    move |State(recorded): State<Arc<std::sync::Mutex<RecordedApprovalRequest>>>,
+                          uri: axum::http::Uri,
+                          Json(body): Json<Value>| async move {
+                        let mut state = recorded.lock().expect("state should lock");
+                        state.path = uri.path().to_string();
+                        state.query = uri
+                            .query()
+                            .unwrap_or_default()
+                            .split('&')
+                            .filter(|entry| !entry.is_empty())
+                            .map(|entry| {
+                                let mut parts = entry.splitn(2, '=');
+                                (
+                                    parts.next().unwrap_or_default().to_string(),
+                                    parts.next().unwrap_or_default().to_string(),
+                                )
+                            })
+                            .collect();
+                        state.body = body;
+
+                        if uri.path() == "/session/ses-1/permissions/perm-1" {
+                            (axum::http::StatusCode::OK, Json(json!({ "ok": true })))
+                        } else {
+                            (
+                                axum::http::StatusCode::NOT_FOUND,
+                                Json(json!({ "error": "not found" })),
+                            )
+                        }
+                    },
+                ),
+            )
+            .with_state(recorded.clone());
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let addr: SocketAddr = listener
+            .local_addr()
+            .expect("listener should expose local addr");
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("test server should run");
+        });
+
+        let config = OpenCodeConfig {
+            url: format!("http://{addr}"),
+            model: None,
+            model_provider: None,
+            approval_policy: "on-request".to_string(),
+            sandbox: "workspace-write".to_string(),
+            service_name: "Qodex".to_string(),
+            request_timeout_ms: 5_000,
+        };
+        let backend = OpenCodeBackend {
+            base_url: Url::parse(&format!("http://{addr}/")).expect("url should parse"),
+            client: Client::builder()
+                .build()
+                .expect("client should build"),
+            config: Arc::new(config.clone()),
+            request_timeout: Duration::from_millis(config.request_timeout_ms),
+            events_tx: broadcast::channel(8).0,
+            state: Arc::new(Mutex::new(OpenCodeState::default())),
+        };
+        {
+            let mut state = backend.state.lock().await;
+            state.remember_workspace("ses-1", "/tmp/workspace");
+        }
+
+        <OpenCodeBackend as AgentBackend>::respond_to_approval(
+            &backend,
+            r#"{"sessionId":"ses-1","permissionId":"perm-1"}"#,
+            "permissions",
+            "{}",
+            ApprovalDecision::AcceptForSession,
+        )
+        .await
+        .expect("approval response should succeed");
+
+        let recorded = recorded.lock().expect("state should lock").clone();
+        assert_eq!(recorded.path, "/session/ses-1/permissions/perm-1");
+        assert!(recorded
+            .query
+            .iter()
+            .any(|(key, value)| key == "directory" && value == "%2Ftmp%2Fworkspace"));
+        assert_eq!(recorded.body["response"], json!("always"));
     }
 }

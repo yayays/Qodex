@@ -6,6 +6,7 @@ import { QodexChannelHost } from './channel-host.js';
 import { consoleChannelExtension } from './channels/console.js';
 import { loadConfig } from './config.js';
 import { CoreClient } from './coreClient.js';
+import { CLI_COMMAND_SUMMARY, CLI_EXIT_HINT } from './cli-output.js';
 import { createLogger } from './logger.js';
 import { ConversationRef } from './core-protocol.js';
 import { ChannelScope } from './plugin-sdk.js';
@@ -70,10 +71,8 @@ async function main(): Promise<void> {
     },
     'Qodex demo CLI ready',
   );
-  output.write(
-    'Commands: /help, /bind /path, /new, /status, /status+, /running, /memory, /remember <scope> <category> <content>, /forget <id>, /profile [scope] [path=value|path+=value|path-=value|!path], /summary [text|clear], /hint <scope> <text>, /unhint <id>, /approve <id>, /approveall [on|off|now], /reject <id>\n',
-  );
-  output.write('Type a normal message to send it to the configured backend. Ctrl+C to exit.\n\n');
+  output.write(CLI_COMMAND_SUMMARY);
+  output.write(CLI_EXIT_HINT);
 
   const rl = readline.createInterface({ input, output });
   while (true) {

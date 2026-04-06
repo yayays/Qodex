@@ -158,6 +158,33 @@ export async function handleRuntimeCommand(
       });
       return;
     }
+    case '/restart': {
+      if (!deps.host?.requestRestart) {
+        await sink.sendText({
+          conversationKey,
+          kind: 'error',
+          text: 'Restart is only available when Qodex runs under qodex-host.',
+        });
+        return;
+      }
+
+      const restartInfo = deps.host.getRestartInfo?.();
+      await sink.sendText({
+        conversationKey,
+        kind: 'system',
+        text: [
+          'Starting a full Qodex restart. Wait a moment, then send /status to verify the stack is back.',
+          restartInfo ? `config=${restartInfo.configPath}` : undefined,
+          restartInfo
+            ? `appServers=${restartInfo.skipAppServer ? 'skipped' : 'managed'}`
+            : undefined,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      });
+      await deps.host.requestRestart(message.conversation);
+      return;
+    }
     case '/memory': {
       const memory = await deps.core.listMemory(buildMemoryLocator(message));
       await sink.sendText({

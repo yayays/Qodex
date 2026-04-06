@@ -71,11 +71,44 @@ npm run quick:start -- --workspace /ABSOLUTE/PATH/TO/YOUR/WORKSPACE --channel we
 ```bash
 npm run doctor:qodex
 npm run start:qodex
+npm run start:qodex:bg
+npm run restart:qodex
+npm run restart:qodex:bg
 npm run start:qodex:skip-backend
 cargo check -p qodex-core
 cargo test -p qodex-core
 npm --workspace @qodex/edge run check
 ```
+
+## Start and Restart
+
+Use the root `start:*` and `restart:*` scripts as the canonical entrypoints.
+
+```bash
+# foreground start with ./qodex.toml
+npm run start:qodex
+
+# background start with ./qodex.toml
+npm run start:qodex:bg
+
+# restart the managed stack for ./qodex.toml
+npm run restart:qodex
+```
+
+For a custom config path, use the lower-level host scripts explicitly:
+
+```bash
+# foreground start with a custom config path
+npm run host:qodex -- --config /ABSOLUTE/PATH/TO/qodex.toml
+
+# background start with a custom config path
+npm run host:qodex:bg -- --config /ABSOLUTE/PATH/TO/qodex.toml
+
+# restart the managed stack for a custom config path
+npm run restart:qodex -- --config /ABSOLUTE/PATH/TO/qodex.toml
+```
+
+Background mode writes managed runtime files under `/tmp` and `restart:qodex` uses those files first, then falls back to process matching if needed.
 
 ## WeChat Support
 
